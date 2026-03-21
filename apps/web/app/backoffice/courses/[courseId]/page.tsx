@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Clock, Video, FileText, Image as ImageIcon, HelpCircle, Plus } from "lucide-react";
+import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
 
@@ -25,7 +24,6 @@ type CourseDetail = {
 };
 
 export default function InstructorCourseEditor({ params }: { params: { courseId: string } }) {
-    const router = useRouter();
     const [course, setCourse] = useState<CourseDetail | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -47,7 +45,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
 
                 const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token: t });
                 if (active) setCourse(response.course);
-            } catch (err) {
+            } catch {
                 if (active) setError("Could not load course details");
             }
         }

@@ -128,7 +128,6 @@ export default function BackofficePage() {
     refreshCourses().catch((error) => {
       setActionError(error instanceof Error ? error.message : "Could not fetch courses");
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, token]);
 
   const draftCourses = courses.filter((course) => !course.published);

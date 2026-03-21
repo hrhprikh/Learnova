@@ -259,8 +259,7 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
     });
 
     return res.status(200).json({
-      // @ts-ignore
-      courses: courses.map((course: any) => ({
+      courses: courses.map((course: (typeof courses)[number]) => ({
         ...course,
         lessonCount: course.lessons.length,
         durationSeconds: course.lessons.reduce(

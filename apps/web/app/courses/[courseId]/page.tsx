@@ -27,12 +27,6 @@ type CourseResponse = {
   };
 };
 
-type EnrolledResponse = {
-  lessons: Array<{
-    id: string;
-  }>;
-};
-
 type ReviewsResponse = {
   averageRating: number;
   reviews: Array<{

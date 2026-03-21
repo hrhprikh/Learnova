@@ -33,6 +33,7 @@ app.use((_req, res) => {
 });
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  void _next;
   if (error instanceof ZodError) {
     return res.status(400).json({
       message: "Validation error",

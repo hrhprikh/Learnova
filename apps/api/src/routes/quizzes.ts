@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
@@ -21,7 +22,7 @@ function pointsForAttempt(attemptNumber: number, rewards: { r1: number; r2: numb
   return rewards.r4;
 }
 
-async function assignBadges(tx: any, userId: string, totalPoints: number) {
+async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalPoints: number) {
   const badges = await tx.badgeDefinition.findMany({
     where: {
       thresholdPoints: {
@@ -188,7 +189,7 @@ quizzesRouter.post("/quizzes/:quizId/submit", requireAuth, async (req, res, next
       r4: quiz.rewardAttempt4Plus
     };
 
-    const transactionResult = await prisma.$transaction(async (tx: any) => {
+    const transactionResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const attemptsCount = await tx.quizAttempt.count({
         where: {
           quizId,
