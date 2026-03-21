@@ -229,7 +229,7 @@ quizzesRouter.post("/quizzes/:quizId/submit", requireAuth, async (req, res, next
     const total = quiz.questions.length;
     const correct = quiz.questions.reduce((acc: number, q: (typeof quiz.questions)[number]) => {
       const selectedOptionIds = answerByQuestion.get(q.id) || [];
-      const correctOptionIds = q.options.filter(opt => opt.isCorrect).map(opt => opt.id);
+      const correctOptionIds = q.options.filter((opt: { isCorrect: boolean }) => opt.isCorrect).map((opt: { id: string }) => opt.id);
       
       if (selectedOptionIds.length !== correctOptionIds.length) return acc;
       const isPerfectMatch = selectedOptionIds.every(id => correctOptionIds.includes(id));
@@ -414,7 +414,7 @@ quizzesRouter.put("/quizzes/:quizId/questions/:questionId", requireAuth, require
       return res.status(permission.error.status).json({ message: permission.error.message });
     }
 
-    const updatedQuestion = await prisma.$transaction(async (tx) => {
+    const updatedQuestion = await prisma.$transaction(async (tx: any) => {
       await tx.quizQuestion.update({
         where: { id: questionId },
         data: {
