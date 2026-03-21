@@ -63,12 +63,12 @@ reportsRouter.get(
         where: { courseId },
         select: { userId: true, enrolledAt: true }
       });
-      const enrollmentMap = new Map(attendees.map(a => [a.userId, a.enrolledAt]));
+      const enrollmentMap = new Map(attendees.map((a: { userId: string; enrolledAt: Date }) => [a.userId, a.enrolledAt]));
 
       // Get time spent (aggregated from lesson progress)
       const lessonProgress = await prisma.lessonProgress.findMany({
         where: {
-          userId: { in: progress.map(p => p.userId) },
+          userId: { in: progress.map((p: { userId: string }) => p.userId) },
           lesson: { courseId }
         },
         select: { userId: true, timeSpentSeconds: true }
@@ -79,7 +79,7 @@ reportsRouter.get(
         timeSpentMap.set(lp.userId, (timeSpentMap.get(lp.userId) || 0) + lp.timeSpentSeconds);
       }
 
-      const rows: ReportRow[] = progress.map(p => ({
+      const rows: ReportRow[] = progress.map((p: any) => ({
         participantName: p.user.fullName,
         participantEmail: p.user.email,
         enrolledAt: enrollmentMap.get(p.userId) || null,
