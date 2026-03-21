@@ -1,0 +1,26 @@
+{
+  "name": "learnova",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @learnova/web",
+    "dev:api": "npm run dev -w @learnova/api",
+    "build": "npm run build -ws --if-present",
+    "lint": "npm run lint -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "eslint": "^9.22.0",
+    "@eslint/js": "^9.22.0",
+    "effect": "^3.13.9",
+    "globals": "^15.15.0",
+    "typescript-eslint": "^8.25.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2"
+  }
+}

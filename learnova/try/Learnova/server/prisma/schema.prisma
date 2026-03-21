@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// User role enum mapping to Learnova RBAC
+enum Role {
+  ADMIN
+  INSTRUCTOR
+  LEARNER
+}
+
+// Visibility enum
+enum Visibility {
+  PUBLIC
+  PRIVATE
+  UNLISTED
+}
+
+// Course State
+enum CourseState {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+}
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  password    String   // Typically handled by Supabase Auth, but we can store hashed passwords here if local auth applies
+  name        String
+  role        Role     @default(LEARNER)
+  totalPoints Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  courses      Course[]      @relation("InstructorCourses")
+  enrollments  Enrollment[]
+  progress     Progress[]
+  attempts     Attempt[]
+  reviews      Review[]
+  badges       Badge[]
+}
+
+model Course {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  category    String?
+  thumbnail   String?
+  visibility  Visibility   @default(PUBLIC)
+  state       CourseState  @default(DRAFT)
+  instructorId String
+  instructor  User         @relation("InstructorCourses", fields: [instructorId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  lessons     Lesson[]
+  enrollments Enrollment[]
+  reviews     Review[]
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model Lesson {
+  id        String   @id @default(uuid())
+  courseId  String
+  title     String
+  content   String?  // Text content or HTML
+  videoUrl  String?  // YouTube/External URL ONLY
+  pdfUrl    String?  // Supabase Storage URL
+  order     Int
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quizzes   Quiz[]
+  progress  Progress[]
+}
+
+model Quiz {
+  id        String   @id @default(uuid())
+  lessonId  String
+  title     String
+  lesson    Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  
+  questions Question[]
+  attempts  Attempt[]
+}
+
+model Question {
+  id            String   @id @default(uuid())
+  quizId        String
+  text          String
+  type          String   // MCQ, TRUE_FALSE
+  options       Json?    // Array of options
+  correctAnswer String   // The correct option or true/false
+  points        Int      @default(10)
+  quiz          Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+}
+
+model Attempt {
+  id            String   @id @default(uuid())
+  userId        String
+  quizId        String
+  score         Float
+  attemptNumber Int
+  pointsEarned  Int
+  user          User     @relation(fields: [userId], references: [id])
+  quiz          Quiz     @relation(fields: [quizId], references: [id])
+  createdAt     DateTime @default(now())
+}
+
+model Progress {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  lessonId  String
+  completed Boolean  @default(false)
+  
+  user      User     @relation(fields: [userId], references: [id])
+  lesson    Lesson   @relation(fields: [lessonId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, lessonId])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  rating    Int      // 1-5
+  text      String?
+  user      User     @relation(fields: [userId], references: [id])
+  course    Course   @relation(fields: [courseId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+enum BadgeType {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+model Badge {
+  id        String    @id @default(uuid())
+  userId    String
+  type      BadgeType
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+}

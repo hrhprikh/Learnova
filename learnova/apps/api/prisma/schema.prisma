@@ -1,0 +1,283 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  fullName           String
+  role               UserRole
+  totalPoints        Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdCourses     Course[] @relation("CourseCreator")
+  responsibleCourses Course[] @relation("CourseResponsible")
+  lessonProgress     LessonProgress[]
+  quizAttempts       QuizAttempt[]
+  attendeeCourses    CourseAttendee[]
+  courseProgress     CourseProgress[]
+  reviews            Review[]
+  badges             UserBadge[]
+}
+
+model Course {
+  id                String           @id @default(cuid())
+  title             String
+  description       String?
+  website           String?
+  imageUrl          String?
+  published         Boolean          @default(false)
+  visibility        CourseVisibility @default(EVERYONE)
+  accessRule        CourseAccessRule @default(OPEN)
+  price             Decimal?         @db.Decimal(10, 2)
+  viewsCount        Int              @default(0)
+  createdById       String
+  responsibleUserId String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  createdBy         User             @relation("CourseCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  responsibleUser   User?            @relation("CourseResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
+  tags              CourseTag[]
+  lessons           Lesson[]
+  attendees         CourseAttendee[]
+  progress          CourseProgress[]
+  reviews           Review[]
+
+  @@index([createdById])
+  @@index([published, visibility])
+}
+
+model CourseAttendee {
+  id         String   @id @default(cuid())
+  userId     String
+  courseId   String
+  enrolledAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+}
+
+model CourseProgress {
+  id                String             @id @default(cuid())
+  userId            String
+  courseId          String
+  totalLessons      Int                @default(0)
+  completedLessons  Int                @default(0)
+  completionPercent Int                @default(0)
+  status            CourseProgressStatus @default(YET_TO_START)
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course            Course             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([courseId, status])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  rating    Int
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([courseId])
+}
+
+model BadgeDefinition {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  thresholdPoints Int
+  users           UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  achievedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge     BadgeDefinition @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+}
+
+model CourseTag {
+  id       String @id @default(cuid())
+  courseId String
+  tag      String
+  course   Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
+
+model Lesson {
+  id              String       @id @default(cuid())
+  courseId        String
+  title           String
+  description     String?
+  type            LessonType
+  orderIndex      Int
+  durationSeconds Int          @default(0)
+  videoUrl        String?
+  fileUrl         String?
+  allowDownload   Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  course          Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  attachments     LessonAttachment[]
+  quiz            Quiz?
+  progress        LessonProgress[]
+
+  @@index([courseId, orderIndex])
+}
+
+model LessonAttachment {
+  id          String         @id @default(cuid())
+  lessonId    String
+  kind        AttachmentKind
+  label       String
+  fileUrl     String?
+  externalUrl String?
+  createdAt   DateTime       @default(now())
+  lesson      Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+}
+
+model Quiz {
+  id                 String         @id @default(cuid())
+  lessonId           String         @unique
+  title              String
+  rewardAttempt1     Int            @default(20)
+  rewardAttempt2     Int            @default(14)
+  rewardAttempt3     Int            @default(9)
+  rewardAttempt4Plus Int            @default(5)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  lesson             Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions          QuizQuestion[]
+  attempts           QuizAttempt[]
+}
+
+model QuizQuestion {
+  id         String       @id @default(cuid())
+  quizId      String
+  orderIndex Int
+  text       String
+  quiz       Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options    QuizOption[]
+  answers    QuizAttemptAnswer[]
+
+  @@index([quizId, orderIndex])
+}
+
+model QuizOption {
+  id         String            @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean           @default(false)
+  question   QuizQuestion      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers    QuizAttemptAnswer[]
+
+  @@index([questionId])
+}
+
+model QuizAttempt {
+  id           String              @id @default(cuid())
+  quizId        String
+  userId       String
+  attemptNumber Int
+  scorePercent Int
+  earnedPoints Int
+  createdAt    DateTime            @default(now())
+  quiz         Quiz                @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers      QuizAttemptAnswer[]
+
+  @@index([quizId, userId])
+  @@unique([quizId, userId, attemptNumber])
+}
+
+model QuizAttemptAnswer {
+  id         String      @id @default(cuid())
+  attemptId  String
+  questionId String
+  optionId   String
+  attempt    QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question   QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  option     QuizOption  @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+}
+
+model LessonProgress {
+  id              String         @id @default(cuid())
+  lessonId        String
+  userId          String
+  status          ProgressStatus @default(NOT_STARTED)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  timeSpentSeconds Int          @default(0)
+  lesson          Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, userId])
+  @@index([userId, status])
+}
+
+enum UserRole {
+  ADMIN
+  INSTRUCTOR
+  LEARNER
+}
+
+enum CourseVisibility {
+  EVERYONE
+  SIGNED_IN
+}
+
+enum CourseAccessRule {
+  OPEN
+  INVITATION
+  PAYMENT
+}
+
+enum LessonType {
+  VIDEO
+  DOCUMENT
+  IMAGE
+  QUIZ
+}
+
+enum AttachmentKind {
+  FILE
+  LINK
+}
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum CourseProgressStatus {
+  YET_TO_START
+  IN_PROGRESS
+  COMPLETED
+}

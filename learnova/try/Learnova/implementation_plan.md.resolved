@@ -1,0 +1,269 @@
+# Learnova LMS – Implementation Plan
+
+Learnova is a web-based LMS built with **Next.js** (frontend), **Node.js + Express** (backend), **Prisma + Supabase PostgreSQL** (database), and **Supabase Auth + Storage**. This plan details all files to be created, organized by phase and component.
+
+---
+
+## Proposed Changes
+
+---
+
+### Phase 1 — Project Setup
+
+#### [NEW] `learnova-backend/` — Express API Server
+Scaffolded Node.js + Express + TypeScript project.
+
+```
+learnova-backend/
+├── src/
+│   ├── index.ts              → App entry, middleware, CORS
+│   ├── config/
+│   │   └── env.ts            → Typed env vars (dotenv)
+│   ├── lib/
+│   │   ├── supabase.ts       → Supabase client (Auth + Storage)
+│   │   └── prisma.ts         → Prisma client singleton
+│   ├── middleware/
+│   │   ├── auth.middleware.ts → Supabase JWT verification
+│   │   └── rbac.middleware.ts → Role-based access control
+│   ├── routers/              → Feature routers (one per module)
+│   ├── services/             → Business logic layer
+│   └── types/                → Shared TypeScript types
+├── prisma/
+│   └── schema.prisma         → Full DB schema
+├── .env                      → SUPABASE_URL, SUPABASE_ANON_KEY, DATABASE_URL
+└── package.json
+```
+
+#### [NEW] `learnova-web/` — Next.js Frontend
+```
+learnova-web/
+├── app/
+│   ├── (public)/             → Login, Register, Course Browse
+│   ├── (auth)/               → Dashboard, Learn, Quiz, Profile
+│   ├── (instructor)/         → Studio, Course Editor, Analytics
+│   └── (admin)/              → User Management, Reports
+├── components/               → Shared UI components
+├── lib/
+│   ├── supabase.ts           → Supabase browser client
+│   └── api.ts                → Axios/Fetch API wrapper
+├── .env.local                → NEXT_PUBLIC_SUPABASE_URL, API_URL
+└── package.json
+```
+
+---
+
+### Phase 2 — Database Schema
+
+#### [MODIFY] `prisma/schema.prisma`
+Full schema covering all entities:
+
+| Model | Key Fields |
+|---|---|
+| `User` | id, email, role (enum), full_name, total_points |
+| `Course` | id, instructor_id, title, is_published, visibility |
+| `Lesson` | id, course_id, content_type, content_url, order_index |
+| `Quiz` | id, course_id, passing_score_pct, max_attempts |
+| `Question` | id, quiz_id, type (enum), points |
+| `Option` | id, question_id, text, is_correct |
+| `Enrollment` | user_id + course_id (unique pair) |
+| `Progress` | user_id + lesson_id, is_completed, video_position |
+| `QuizAttempt` | id, user_id, quiz_id, score_pct, passed |
+| `Review` | user_id + course_id, rating (1–5), comment |
+| `Badge` | id, name, type, threshold |
+| `UserBadge` | user_id + badge_id (unique pair) |
+| `Certificate` | id, user_id, course_id, certificate_uid |
+
+---
+
+### Phase 3 — Authentication
+
+#### [NEW] `src/middleware/auth.middleware.ts`
+- Verifies incoming Supabase JWT via `supabase.auth.getUser(token)`
+- Attaches `req.user` (id, email, role) to request
+
+#### [NEW] `src/middleware/rbac.middleware.ts`
+- `requireRole(...roles)` factory — returns 403 if role not allowed
+
+#### [NEW] `app/(public)/login/page.tsx`
+- Supabase `signInWithPassword` client call
+- Redirect to dashboard on success
+
+#### [NEW] `app/(public)/register/page.tsx`
+- Supabase `signUp` + insert into `users` table via backend
+- Email confirmation flow
+
+---
+
+### Phase 4 — Course Module
+
+#### [NEW] `src/routers/courses.router.ts`
+| Method | Route | Role |
+|---|---|---|
+| GET | `/api/v1/courses` | Public |
+| POST | `/api/v1/courses` | Instructor |
+| PATCH | `/api/v1/courses/:id` | Instructor (owner) |
+| DELETE | `/api/v1/courses/:id` | Instructor / Admin |
+| POST | `/api/v1/courses/:id/publish` | Instructor |
+
+#### [NEW] `src/services/course.service.ts`
+- Ownership validation, publish/visibility logic, Prisma queries
+
+#### [NEW] `app/(instructor)/studio/` pages
+- Course list, create form, edit form
+
+---
+
+### Phase 5 — Lesson Module
+
+#### [NEW] `src/routers/lessons.router.ts`
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/v1/courses/:id/lessons` | Add lesson |
+| PATCH | `/api/v1/lessons/:id` | Update |
+| DELETE | `/api/v1/lessons/:id` | Delete |
+| PATCH | `/api/v1/courses/:id/lessons/reorder` | Reorder |
+
+#### [NEW] `src/services/storage.service.ts`
+- `uploadFile(bucket, path, file)` via Supabase Storage SDK
+- Returns public URL
+
+#### [NEW] `app/(instructor)/studio/[courseId]/lessons/page.tsx`
+- Lesson list with reorder (drag-and-drop)
+- Add lesson modal: video URL / PDF / image / text
+
+---
+
+### Phase 6 — Quiz Module
+
+#### [NEW] `src/routers/quizzes.router.ts`
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/v1/courses/:id/quizzes` | Create quiz |
+| GET | `/api/v1/quizzes/:id/take` | Get quiz for attempt |
+| POST | `/api/v1/quizzes/:id/submit` | Submit attempt |
+
+#### [NEW] `src/services/quiz.service.ts`
+- `evaluateAttempt()` — grades all answers
+- `calculatePoints(score, attemptNumber)` — attempt-based multiplier
+- `storeAttempt()` — saves to `QuizAttempt` + `AttemptAnswers`
+
+#### [NEW] `app/(auth)/quiz/[quizId]/page.tsx`
+- Question-by-question player with timer
+- Result screen: score, correct answers, points earned
+
+---
+
+### Phase 7 — Learning Module
+
+#### [NEW] `src/routers/enrollments.router.ts`
+- `POST /api/v1/courses/:id/enroll`
+
+#### [NEW] `app/(auth)/learn/[courseId]/[lessonId]/page.tsx`
+- Full-screen layout: collapsible sidebar + lesson content area
+- YouTube iframe embed for videos
+- PDF viewer (iframe / react-pdf)
+- Next/Prev navigation
+
+---
+
+### Phase 8 — Progress Tracking
+
+#### [NEW] `src/routers/progress.router.ts`
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/v1/progress/lesson/:id/complete` | Mark complete |
+| PATCH | `/api/v1/progress/lesson/:id/position` | Save position |
+| GET | `/api/v1/progress/course/:id` | Get summary |
+
+#### [NEW] `src/services/progress.service.ts`
+- `checkCourseCompletion()` → triggers certificate generation
+- `generateCertificate()` → creates `Certificate` DB record with unique UID
+
+---
+
+### Phase 9 — Gamification
+
+#### [NEW] `src/services/gamification.service.ts`
+- `awardPoints(userId, points)` — increments `user.total_points`
+- `checkBadges(userId)` — compares total_points against badge thresholds
+
+#### [NEW] `app/(auth)/dashboard/page.tsx`
+- Points total, current badge, leaderboard preview
+
+---
+
+### Phase 10 — Reviews
+
+#### [NEW] `src/routers/reviews.router.ts`
+- CRUD endpoints, avg rating recalculation on DB
+
+---
+
+### Phase 11 — Reporting
+
+#### [NEW] `src/routers/reports.router.ts`
+- Instructor analytics, learner progress report, CSV export
+
+#### [NEW] `app/(instructor)/studio/[courseId]/analytics/page.tsx`
+- Charts: enrollment trend, completion rate, avg quiz score
+
+---
+
+### Phase 12 — Admin Panel
+
+#### [NEW] `src/routers/admin.router.ts`
+- User list/deactivate, category CRUD, platform stats
+
+#### [NEW] `app/(admin)/` pages
+- Users table, all-courses table, platform analytics
+
+---
+
+### Phase 13 — Deployment
+
+- **Backend:** Push to Railway via `railway up` / GitHub integration
+- **Frontend:** Push to Vercel via GitHub integration
+- **Supabase:** Production project, Prisma `DATABASE_URL` pointing to Supabase connection pooler
+- **Sentry:** `SENTRY_DSN` set in both frontend and backend `.env`
+
+---
+
+## Verification Plan
+
+> This is a new codebase — no existing tests to run. Verification will be manual via browser and API client (Postman / Thunder Client).
+
+### Manual Verification Steps
+
+**Auth**
+1. Open app → register a new account → confirm in Supabase Dashboard under Auth > Users
+2. Login → verify JWT token set in browser cookie/session
+3. Try accessing `/studio` as a Learner role → confirm 403
+
+**Course Creation**
+4. Login as Instructor → create a course → add 3 lessons (1 video URL, 1 PDF, 1 text)
+5. Publish course → confirm it appears in public course listing
+
+**Learning Flow**
+6. Login as Learner → enroll in course → open lesson player
+7. Complete all lessons → verify progress bar reaches 100%
+8. Confirm certificate appears on profile
+
+**Quiz Flow**
+9. Instructor creates a 3-question quiz on the course
+10. Learner submits quiz → verify score, points awarded, result screen shown
+11. Submit same quiz again → verify reduced points on 2nd attempt
+
+**Gamification**
+12. Check dashboard for points total and badge level after quiz submission
+13. Manually set total_points in Supabase Dashboard to a badge threshold → verify badge awarded
+
+**Reporting**
+14. Login as Instructor → open course analytics → verify learner count, completion %, avg score
+15. Click export → verify CSV download contains correct data
+
+**API via Postman**
+- `POST /api/v1/auth/login` → 200 + token
+- `GET /api/v1/courses` → 200 + list
+- `POST /api/v1/quizzes/:id/submit` with valid body → 200 + result
+- Unauthorized request → 401
+- Wrong role → 403
