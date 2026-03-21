@@ -183,17 +183,17 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
-                  {authoredCourses.length > 0 ? authoredCourses.slice(0, 4).map((course, index) => (
+                  {authoredCourses.length > 0 ? authoredCourses.slice(0, 4).map((course) => (
                     <Link
                       key={course.id}
                       href={`/backoffice/courses/${course.id}`}
-                      className={`group bg-white p-6 rounded-2xl border border-[var(--edge)] hover:shadow-[0_20px_40px_-15px_rgba(26,28,41,0.05)] hover:-translate-y-1 transition-all duration-300 ${index % 2 === 0 ? "md:-translate-y-4" : ""}`}
+                      className="group bg-white p-6 rounded-2xl border border-[var(--edge)] hover:shadow-[0_20px_40px_-15px_rgba(26,28,41,0.05)] hover:-translate-y-1 transition-all duration-300 h-full flex flex-col"
                     >
                       <div className={`inline-block px-2 py-1 font-mono text-[10px] uppercase tracking-wider rounded mb-4 ${course.published ? "bg-[#f2f0eb] text-[var(--ink-soft)]" : "bg-[var(--accent-peach)]/20 text-[var(--ink)]"}`}>
                         {course.published ? "Published" : "Draft"}
                       </div>
                       <h3 className="font-heading text-2xl font-medium mb-3 group-hover:text-[var(--accent-blue)] transition-colors">{course.title}</h3>
-                      <p className="text-[var(--ink-soft)] text-sm mb-8 line-clamp-2">{course.description ?? "No description"}</p>
+                      <p className="text-[var(--ink-soft)] text-sm mb-8 line-clamp-2 min-h-[2.5rem]">{course.description ?? "No description"}</p>
 
                       <div className="mt-auto border-t border-[var(--edge)]/40 pt-4 flex items-center justify-between font-mono text-xs text-[var(--ink-soft)]">
                         <span>{course.attendeesCount ?? 0} Students</span>

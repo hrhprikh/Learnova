@@ -676,7 +676,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   <p className="text-sm font-semibold mt-1">{certificate.instructorName}</p>
                 </div>
               </div>
-              <p className="mt-5 text-xs text-[var(--ink-soft)]">Pattern: random 4-digit ({certificate.randomPart}) + running 5-digit ({String(certificate.sequenceNumber).padStart(5, "0")})</p>
               <p className="mt-2 text-xs text-[var(--ink-soft)]">Issued by Learnova Academy as proof of successful completion.</p>
             </div>
 
