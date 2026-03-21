@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, requireSupabaseToken } from "../middleware/auth.middleware.js";
+import { requireRole } from "../middleware/rbac.middleware.js";
 
 const syncUserSchema = z.object({
   fullName: z.string().min(2),
@@ -42,6 +43,26 @@ authRouter.post("/auth/sync-user", requireSupabaseToken, async (req, res, next) 
     }
 
     return res.status(200).json({ user });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+authRouter.get("/users/instructors", requireAuth, requireRole("ADMIN", "INSTRUCTOR"), async (req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({
+      where: {
+        role: { in: ["INSTRUCTOR", "ADMIN"] }
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        role: true
+      },
+      orderBy: { fullName: "asc" }
+    });
+    return res.status(200).json({ users });
   } catch (error) {
     return next(error);
   }

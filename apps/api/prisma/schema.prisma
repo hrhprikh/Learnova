@@ -17,6 +17,7 @@ model User {
   updatedAt          DateTime @updatedAt
   createdCourses     Course[] @relation("CourseCreator")
   responsibleCourses Course[] @relation("CourseResponsible")
+  responsibleLessons Lesson[] @relation("LessonResponsible")
   lessonProgress     LessonProgress[]
   quizAttempts       QuizAttempt[]
   attendeeCourses    CourseAttendee[]
@@ -140,6 +141,8 @@ model Lesson {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   course          Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  responsibleUserId String?
+  responsibleUser   User?       @relation("LessonResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   attachments     LessonAttachment[]
   quiz            Quiz?
   progress        LessonProgress[]

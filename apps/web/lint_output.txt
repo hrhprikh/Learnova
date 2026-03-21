@@ -1,0 +1,5 @@
+﻿app/backoffice/quizzes/[quizId]/page.tsx(64,29): error TS2532: Object is possibly 'undefined'.
+app/backoffice/quizzes/[quizId]/page.tsx(108,9): error TS2322: Type '"PUT"' is not assignable to type 'HttpMethod | undefined'.
+app/backoffice/quizzes/[quizId]/page.tsx(138,9): error TS2322: Type '"PUT"' is not assignable to type 'HttpMethod | undefined'.
+app/backoffice/quizzes/[quizId]/page.tsx(172,53): error TS2532: Object is possibly 'undefined'.
+app/backoffice/quizzes/[quizId]/page.tsx(330,27): error TS2532: Object is possibly 'undefined'.

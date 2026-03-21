@@ -10,13 +10,14 @@ const idSchema = z.string().min(1);
 
 const lessonInputSchema = z.object({
   title: z.string().min(2),
-  description: z.string().optional(),
+  description: z.string().optional().nullable(),
   type: z.enum(lessonTypeValues),
   orderIndex: z.number().int().nonnegative().optional(),
   durationSeconds: z.number().int().nonnegative().default(0),
-  videoUrl: z.string().url().optional(),
-  fileUrl: z.string().url().optional(),
-  allowDownload: z.boolean().default(false)
+  videoUrl: z.string().url().optional().nullable(),
+  fileUrl: z.string().url().optional().nullable(),
+  allowDownload: z.boolean().default(false),
+  responsibleUserId: z.string().optional().nullable()
 });
 
 const attachmentInputSchema = z.object({
@@ -200,7 +201,8 @@ lessonsRouter.post(
           durationSeconds: payload.durationSeconds,
           videoUrl: payload.videoUrl,
           fileUrl: payload.fileUrl,
-          allowDownload: payload.allowDownload
+          allowDownload: payload.allowDownload,
+          responsibleUserId: payload.responsibleUserId
         }
       });
 
@@ -253,7 +255,8 @@ lessonsRouter.patch(
           ...(payload.durationSeconds !== undefined ? { durationSeconds: payload.durationSeconds } : {}),
           ...(payload.videoUrl !== undefined ? { videoUrl: payload.videoUrl } : {}),
           ...(payload.fileUrl !== undefined ? { fileUrl: payload.fileUrl } : {}),
-          ...(payload.allowDownload !== undefined ? { allowDownload: payload.allowDownload } : {})
+          ...(payload.allowDownload !== undefined ? { allowDownload: payload.allowDownload } : {}),
+          ...(payload.responsibleUserId !== undefined ? { responsibleUserId: payload.responsibleUserId } : {})
         }
       });
 
@@ -328,6 +331,40 @@ lessonsRouter.post(
       });
 
       return res.status(201).json({ attachment });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+lessonsRouter.delete(
+  "/attachments/:attachmentId",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const attachmentId = idSchema.parse(req.params.attachmentId);
+
+      const attachment = await prisma.lessonAttachment.findUnique({
+        where: { id: attachmentId },
+        include: {
+          lesson: {
+            select: { courseId: true }
+          }
+        }
+      });
+
+      if (!attachment) {
+        return res.status(404).json({ message: "Attachment not found" });
+      }
+
+      const permission = await assertCourseOwner(attachment.lesson.courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      await prisma.lessonAttachment.delete({ where: { id: attachmentId } });
+      return res.status(204).send();
     } catch (error) {
       return next(error);
     }

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsc -p tsconfig.json; node dist/src/index.js",
+    "dev": "tsc -p tsconfig.json && node dist/src/index.js",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/src/index.js",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
