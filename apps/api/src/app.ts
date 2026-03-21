@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
 import { ZodError } from "zod";
+import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { coursesRouter } from "./routes/courses.js";
 import { healthRouter } from "./routes/health.js";
@@ -22,6 +23,7 @@ app.use(morgan("dev"));
 
 app.use("/api/v1", healthRouter);
 app.use("/api/v1", authRouter);
+app.use("/api/v1", adminRouter);
 app.use("/api/v1", coursesRouter);
 app.use("/api/v1", lessonsRouter);
 app.use("/api/v1", progressRouter);

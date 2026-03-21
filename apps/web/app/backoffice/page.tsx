@@ -169,6 +169,7 @@ export default function BackofficePage() {
 
   const draftCourses = courses.filter((course) => !course.published);
   const publishedCourses = courses.filter((course) => course.published);
+  const isAdmin = role === "ADMIN";
 
   const CourseCard = ({ course }: { course: CourseItem }) => (
     <article className="course-float group min-w-[360px] max-w-[420px] lg:min-w-[420px]">
@@ -221,17 +222,23 @@ export default function BackofficePage() {
               <div className="w-8 h-8 rounded-full bg-[var(--ink)] flex items-center justify-center">
                 <span className="text-white font-mono text-sm font-bold">L</span>
               </div>
-              <span className="font-heading font-semibold text-xl tracking-tight">Learnova</span>
+              <div className="flex items-center gap-2">
+                <span className="font-heading font-semibold text-xl tracking-tight">Learnova</span>
+                {isAdmin ? <span className="mono-tag">admin mode</span> : null}
+              </div>
             </div>
             <nav className="flex items-center gap-8 font-mono text-sm">
               <Link href="/backoffice" className="text-[var(--ink)] border-b border-[var(--ink)] pb-1">Modules</Link>
               <Link href="/backoffice/reporting" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Reporting</Link>
+              {isAdmin ? <Link href="/backoffice/admin/users" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Users</Link> : null}
+              {isAdmin ? <Link href="/backoffice/admin/reports" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Global Reports</Link> : null}
+              {isAdmin ? <Link href="/backoffice/settings" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Settings</Link> : null}
               <Link href="/dashboard" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Dashboard</Link>
             </nav>
             <div className="flex items-center gap-4">
               <NotificationBell />
               <button onClick={() => setShowCreatePopup(true)} className="bg-[var(--ink)] text-white text-sm font-medium px-5 py-2 rounded-full hover:bg-[#2a2d43] transition-all flex items-center gap-2">
-                <Plus className="w-4 h-4" /> New Module
+                <Plus className="w-4 h-4" /> {isAdmin ? "New Course (Admin)" : "New Module"}
               </button>
             </div>
           </header>
@@ -239,7 +246,7 @@ export default function BackofficePage() {
           <main className="w-full max-w-7xl gap-6 grid lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="paper-panel">
             <div className="flex items-center justify-between">
-              <p className="mono-note">instructor panel</p>
+              <p className="mono-note">{isAdmin ? "admin control center" : "instructor panel"}</p>
               <div className="flex items-center bg-white/70 border border-[var(--edge)] rounded-xl p-0.5">
                 <button
                   onClick={() => setViewMode("KANBAN")}
@@ -258,10 +265,20 @@ export default function BackofficePage() {
               </div>
             </div>
             
-            <h1 className="display-title mt-4">Course Studio</h1>
+            <h1 className="display-title mt-4">{isAdmin ? "Admin Course Control" : "Course Studio"}</h1>
             <p className="body-copy mt-4 max-w-2xl text-sm">
-              Modular content blocks for course setup, attendees, publishing, and reporting.
+              {isAdmin
+                ? "Global course operations across all instructors, with reporting and user governance shortcuts."
+                : "Modular content blocks for course setup, attendees, publishing, and reporting."}
             </p>
+
+            {isAdmin ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <Link href="/backoffice/admin" className="action-chip text-center">Open Admin Hub</Link>
+                <Link href="/backoffice/admin/users" className="action-chip text-center">Manage Users</Link>
+                <Link href="/backoffice/admin/reports" className="action-chip text-center">Global Reports</Link>
+              </div>
+            ) : null}
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <div className="relative flex-1 min-w-[280px]">
@@ -378,15 +395,15 @@ export default function BackofficePage() {
 
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <article className="course-float">
-                <p className="mono-note">attendees</p>
-                <h3 className="mt-3 text-xl font-semibold">Invite and contact learners</h3>
-                <p className="body-copy mt-2">Invitation workflow is queued for the next implementation batch.</p>
+                <p className="mono-note">{isAdmin ? "users" : "attendees"}</p>
+                <h3 className="mt-3 text-xl font-semibold">{isAdmin ? "User governance" : "Invite and contact learners"}</h3>
+                <p className="body-copy mt-2">{isAdmin ? "Control roles and learner data from the dedicated users management module." : "Invitation workflow is queued for the next implementation batch."}</p>
                 <p className="mono-note mt-4">No pending action on this card</p>
               </article>
               <article className="course-float">
-                <p className="mono-note">reporting</p>
-                <h3 className="mt-3 text-xl font-semibold">Progress snapshots</h3>
-                <p className="body-copy mt-2">Detailed reporting view is in progress and will be added as a dedicated route.</p>
+                <p className="mono-note">{isAdmin ? "global reporting" : "reporting"}</p>
+                <h3 className="mt-3 text-xl font-semibold">{isAdmin ? "Cross-course analytics" : "Progress snapshots"}</h3>
+                <p className="body-copy mt-2">{isAdmin ? "Use global reports to filter by course/status and export CSV for audit-ready reporting." : "Detailed reporting view is in progress and will be added as a dedicated route."}</p>
                 <p className="mono-note mt-4">No pending action on this card</p>
               </article>
             </div>

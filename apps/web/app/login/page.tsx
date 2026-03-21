@@ -76,11 +76,16 @@ export default function LoginPage() {
       });
 
       const me = await apiRequest<MeResponse>("/users/me", { token: accessToken });
-      if (me.user?.role === "ADMIN" || me.user?.role === "INSTRUCTOR") {
-        router.push("/backoffice");
-      } else {
-        router.push("/dashboard");
+      if (!me.user) {
+        throw new Error("Could not resolve user profile after sign-in.");
       }
+
+      const destination = me.user.role === "ADMIN" || me.user.role === "INSTRUCTOR"
+        ? "/backoffice"
+        : "/dashboard";
+
+      router.replace(destination);
+      router.refresh();
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : "Login failed";
       setError(message);

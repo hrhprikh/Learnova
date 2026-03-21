@@ -74,11 +74,9 @@ export default function RegisterPage() {
             role: accountType
           }
         });
-        if (accountType === "INSTRUCTOR") {
-          router.push("/backoffice");
-        } else {
-          router.push("/dashboard");
-        }
+        const destination = accountType === "INSTRUCTOR" ? "/backoffice" : "/dashboard";
+        router.replace(destination);
+        router.refresh();
       } else {
         throw new Error("Account created but no active session was returned. Please sign in.");
       }
