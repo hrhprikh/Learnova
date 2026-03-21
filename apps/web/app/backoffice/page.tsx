@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Plus, Eye, BarChart2, Share2, Layout, Grid, Search, Clock, BookOpen, Users } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -34,7 +35,10 @@ type CoursesResponse = {
   courses: CourseItem[];
 };
 
+const suggestedTags = ["beginner", "advanced", "frontend", "backend", "design", "assessment"];
+
 export default function BackofficePage() {
+  const router = useRouter();
   const [status, setStatus] = useState("Checking access...");
   const [role, setRole] = useState<AppRole | null>(null);
   const [courses, setCourses] = useState<CourseItem[]>([]);
@@ -43,7 +47,20 @@ export default function BackofficePage() {
   const [showCreatePopup, setShowCreatePopup] = useState(false);
   const [token, setToken] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [newTags, setNewTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+
+  function addTag(rawTag: string) {
+    const tag = rawTag.trim().toLowerCase();
+    if (!tag || newTags.includes(tag)) return;
+    setNewTags((prev) => [...prev, tag]);
+  }
+
+  function removeTag(tagToRemove: string) {
+    setNewTags((prev) => prev.filter((tag) => tag !== tagToRemove));
+  }
 
   useEffect(() => {
     let active = true;
@@ -94,20 +111,23 @@ export default function BackofficePage() {
     if (!token || !newTitle.trim()) return;
     setActionError(null);
     try {
-      await apiRequest<{ course: CourseItem }>("/courses", {
+      const created = await apiRequest<{ course: CourseItem }>("/courses", {
         method: "POST",
         token,
         body: {
           title: newTitle.trim(),
-          description: "New course draft",
+          description: newDescription.trim() || "New course draft",
           visibility: "EVERYONE",
           accessRule: "OPEN",
-          tags: ["new"]
+          tags: newTags.length > 0 ? newTags : ["new"]
         }
       });
       setNewTitle("");
+      setNewDescription("");
+      setNewTags([]);
+      setTagInput("");
       setShowCreatePopup(false);
-      await refreshCourses();
+      router.push(`/backoffice/courses/${created.course.id}?openLesson=1`);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not create course");
     }
@@ -151,52 +171,43 @@ export default function BackofficePage() {
   const publishedCourses = courses.filter((course) => course.published);
 
   const CourseCard = ({ course }: { course: CourseItem }) => (
-    <article className="course-float group">
-      <div className="flex justify-between items-start">
-        <h3 className="text-lg font-semibold leading-tight group-hover:text-[var(--ink)] transition-colors line-clamp-2">{course.title}</h3>
-        <button onClick={() => copyShareLink(course.id)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-all" title="Share Course">
-          <Share2 className="w-4 h-4" />
-        </button>
-      </div>
-      <p className="body-copy mt-2 line-clamp-2 text-sm">{course.description ?? "No description yet"}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {course.tags.map((tag) => (
-          <span key={tag.id} className="mono-tag text-[10px]">{tag.tag}</span>
-        ))}
-      </div>
-      
-      <div className="mt-4 grid grid-cols-2 gap-y-3 gap-x-4 font-mono text-[10px] text-[var(--ink-soft)] border-t border-[var(--edge)]/40 pt-4">
-        <div className="flex items-center gap-1.5" title="Total Enrolled Students">
-          <Users className="w-3 h-3" />
-          <span>{course.attendeesCount ?? 0} Enrolled</span>
+    <article className="course-float group min-w-[360px] max-w-[420px] lg:min-w-[420px]">
+      <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-start">
+        <div>
+          <h3 className="text-lg font-semibold leading-tight group-hover:text-[var(--ink)] transition-colors line-clamp-1">{course.title}</h3>
+          <p className="body-copy mt-2 line-clamp-2 text-sm">{course.description ?? "No description yet"}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {course.tags.map((tag) => (
+              <span key={tag.id} className="mono-tag text-[10px]">{tag.tag}</span>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-1.5" title="Views">
-          <Eye className="w-3 h-3" />
-          <span>{course.viewsCount ?? 0} Views</span>
-        </div>
-        <div className="flex items-center gap-1.5" title="Lessons">
-          <BookOpen className="w-3 h-3" />
-          <span>{course.lessonCount} Lessons</span>
-        </div>
-        <div className="flex items-center gap-1.5" title="Duration">
-          <Clock className="w-3 h-3" />
-          <span>{formatDuration(course.durationSeconds)}</span>
+
+        <div className="flex gap-2 md:flex-col md:items-end">
+          <button onClick={() => copyShareLink(course.id)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-all" title="Share Course">
+            <Share2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => togglePublish(course.id, !course.published)}
+            className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all ${course.published ? 'text-green-600 bg-green-50 border-green-100' : 'text-orange-600 bg-orange-50 border-orange-100'}`}
+          >
+            {course.published ? "Unpublish" : "Publish"}
+          </button>
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-2 border-t border-[var(--edge)]/40 pt-4">
-        <div className="flex gap-2">
-          <Link href={`/backoffice/courses/${course.id}`} className="action-chip text-[10px] py-1.5 px-3">Manage</Link>
-          <Link href={`/backoffice/reporting?courseId=${course.id}`} className="flex items-center gap-1.5 text-[10px] font-mono hover:text-[var(--ink)] transition-colors">
-            <BarChart2 className="w-3 h-3" /> Report
-          </Link>
-        </div>
-        <button 
-          onClick={() => togglePublish(course.id, !course.published)} 
-          className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all ${course.published ? 'text-green-600 bg-green-50 border-green-100' : 'text-orange-600 bg-orange-50 border-orange-100'}`}
-        >
-          {course.published ? "Unpublish" : "Publish"}
-        </button>
+      <div className="mt-4 grid grid-cols-4 gap-2 font-mono text-[10px] text-[var(--ink-soft)] border-t border-[var(--edge)]/40 pt-3">
+        <div className="flex items-center gap-1" title="Total Enrolled Students"><Users className="w-3 h-3" /><span>{course.attendeesCount ?? 0}</span></div>
+        <div className="flex items-center gap-1" title="Views"><Eye className="w-3 h-3" /><span>{course.viewsCount ?? 0}</span></div>
+        <div className="flex items-center gap-1" title="Lessons"><BookOpen className="w-3 h-3" /><span>{course.lessonCount}</span></div>
+        <div className="flex items-center gap-1" title="Duration"><Clock className="w-3 h-3" /><span>{formatDuration(course.durationSeconds)}</span></div>
+      </div>
+
+      <div className="mt-4 flex items-center gap-2 border-t border-[var(--edge)]/40 pt-3">
+        <Link href={`/backoffice/courses/${course.id}`} className="action-chip text-[10px] py-1.5 px-3">Manage</Link>
+        <Link href={`/backoffice/reporting?courseId=${course.id}`} className="flex items-center gap-1.5 text-[10px] font-mono hover:text-[var(--ink)] transition-colors">
+          <BarChart2 className="w-3 h-3" /> Report
+        </Link>
       </div>
     </article>
   );
@@ -204,26 +215,28 @@ export default function BackofficePage() {
   return (
     <RoleGate role={role} allow={["ADMIN", "INSTRUCTOR"]}>
       <div className="min-h-screen bg-[var(--bg)] pb-20">
-        <header className="fixed top-6 left-1/2 -translate-x-1/2 w-[calc(100%-3rem)] max-w-[1200px] z-50 bg-white/70 backdrop-blur-xl border border-[var(--edge)] px-6 py-4 rounded-2xl shadow-[0_10px_30px_-20px_rgba(0,0,0,0.1)] flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <span className="font-heading font-semibold tracking-tight text-lg text-[var(--ink)]">Learnova.Lab</span>
-            <div className="h-5 w-px bg-[var(--edge)]" />
-            <nav className="hidden md:flex gap-6 font-mono text-xs">
-              <Link href="/backoffice" className="text-[var(--ink)] font-bold">Modules</Link>
+        <div className="max-w-[1400px] mx-auto px-6 py-8 lg:px-12">
+          <header className="flex justify-between items-center mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[var(--ink)] flex items-center justify-center">
+                <span className="text-white font-mono text-sm font-bold">L</span>
+              </div>
+              <span className="font-heading font-semibold text-xl tracking-tight">Learnova</span>
+            </div>
+            <nav className="flex items-center gap-8 font-mono text-sm">
+              <Link href="/backoffice" className="text-[var(--ink)] border-b border-[var(--ink)] pb-1">Modules</Link>
               <Link href="/backoffice/reporting" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Reporting</Link>
               <Link href="/dashboard" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Dashboard</Link>
-              <Link href="/courses" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Catalog</Link>
             </nav>
-          </div>
-          <div className="flex items-center gap-4">
-            <NotificationBell />
-            <button onClick={() => setShowCreatePopup(true)} className="bg-[var(--ink)] text-white text-sm font-medium px-5 py-2 rounded-full hover:bg-[#2a2d43] transition-all flex items-center gap-2">
-              <Plus className="w-4 h-4" /> New Module
-            </button>
-          </div>
-        </header>
+            <div className="flex items-center gap-4">
+              <NotificationBell />
+              <button onClick={() => setShowCreatePopup(true)} className="bg-[var(--ink)] text-white text-sm font-medium px-5 py-2 rounded-full hover:bg-[#2a2d43] transition-all flex items-center gap-2">
+                <Plus className="w-4 h-4" /> New Module
+              </button>
+            </div>
+          </header>
 
-        <main className="mx-auto pt-36 w-full max-w-6xl gap-6 px-6 lg:px-12 grid lg:grid-cols-[1.2fr_0.8fr]">
+          <main className="w-full max-w-7xl gap-6 grid lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="paper-panel">
             <div className="flex items-center justify-between">
               <p className="mono-note">instructor panel</p>
@@ -269,32 +282,36 @@ export default function BackofficePage() {
             </div>
 
             {viewMode === "KANBAN" ? (
-              <div className="mt-8 grid gap-6 lg:grid-cols-2">
-                <section className="space-y-4">
+              <div className="mt-8 space-y-5">
+                <section className="panel-soft">
                   <p className="mono-note flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
                     draft ({draftCourses.length})
                   </p>
-                  {draftCourses.map((course) => (
-                    <CourseCard key={course.id} course={course} />
-                  ))}
+                  <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+                    {draftCourses.map((course) => (
+                      <CourseCard key={course.id} course={course} />
+                    ))}
+                  </div>
                   {draftCourses.length === 0 && (
-                    <div className="py-12 text-center rounded-2xl border border-dashed border-[var(--edge)] bg-white/30">
+                    <div className="mt-4 py-8 text-center rounded-2xl border border-dashed border-[var(--edge)] bg-white/30">
                       <p className="text-xs text-[var(--ink-soft)] font-mono">No drafts</p>
                     </div>
                   )}
                 </section>
 
-                <section className="space-y-4">
+                <section className="panel-soft">
                   <p className="mono-note flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
                     published ({publishedCourses.length})
                   </p>
-                  {publishedCourses.map((course) => (
-                    <CourseCard key={course.id} course={course} />
-                  ))}
+                  <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+                    {publishedCourses.map((course) => (
+                      <CourseCard key={course.id} course={course} />
+                    ))}
+                  </div>
                   {publishedCourses.length === 0 && (
-                    <div className="py-12 text-center rounded-2xl border border-dashed border-[var(--edge)] bg-white/30">
+                    <div className="mt-4 py-8 text-center rounded-2xl border border-dashed border-[var(--edge)] bg-white/30">
                       <p className="text-xs text-[var(--ink-soft)] font-mono">No published courses</p>
                     </div>
                   )}
@@ -355,7 +372,7 @@ export default function BackofficePage() {
               <article className="course-float mt-4">
                 <p className="mono-note">empty</p>
                 <h3 className="mt-3 text-xl font-semibold">No courses created yet</h3>
-                <p className="body-copy mt-2">Use quick create to add your first course draft.</p>
+                <p className="body-copy mt-2">Use create to add your first course draft.</p>
               </article>
             ) : null}
 
@@ -375,27 +392,28 @@ export default function BackofficePage() {
             </div>
           </section>
 
-          <aside className="space-y-4">
+          <aside className="space-y-4 lg:sticky lg:top-36 lg:self-start">
             <section className="panel-soft">
               <p className="mono-note">access state</p>
-              <p className="body-copy mt-3">{status}</p>
+              <p className="body-copy mt-3 text-sm leading-relaxed">{status}</p>
               {actionError ? <p className="mt-2 text-sm text-red-600">{actionError}</p> : null}
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 grid grid-cols-2 gap-2">
                 <span className="mono-tag">role: {role ?? "checking"}</span>
                 <span className="mono-tag">rbac: active</span>
               </div>
             </section>
             <section className="panel-soft">
               <p className="mono-note">workflow</p>
-              <p className="body-copy mt-3">Login to role resolve to backoffice controls to course workspace.</p>
+              <p className="body-copy mt-3 text-sm leading-relaxed">Use Create Course, then open Manage to build lessons, resources, and assessments in one flow.</p>
             </section>
           </aside>
-        </main>
+          </main>
+        </div>
 
         {showCreatePopup ? (
           <div className="fixed inset-0 z-40 grid place-items-center bg-black/30 px-4">
-            <div className="w-full max-w-md rounded-2xl border border-[var(--edge)] bg-[var(--paper)] p-5 shadow-xl">
-              <p className="mono-note">quick create</p>
+            <div className="w-full max-w-lg rounded-2xl border border-[var(--edge)] bg-[var(--paper)] p-5 shadow-xl">
+              <p className="mono-note">create</p>
               <h3 className="mt-2 text-xl font-semibold">Create new course draft</h3>
               <input
                 autoFocus
@@ -404,6 +422,72 @@ export default function BackofficePage() {
                 placeholder="Course title"
                 className="mt-4 w-full rounded-xl border border-[var(--edge)] bg-white/80 px-3 py-2 outline-none"
               />
+              <textarea
+                value={newDescription}
+                onChange={(event) => setNewDescription(event.target.value)}
+                placeholder="Course description"
+                rows={3}
+                className="mt-3 w-full rounded-xl border border-[var(--edge)] bg-white/80 px-3 py-2 outline-none"
+              />
+
+              <div className="mt-3">
+                <p className="font-mono text-[11px] uppercase tracking-[0.08em] text-[var(--ink-soft)]">Suggested tags</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {suggestedTags.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => addTag(tag)}
+                      className="mono-tag hover:bg-[var(--ink)] hover:text-white transition-colors"
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  value={tagInput}
+                  onChange={(event) => setTagInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addTag(tagInput);
+                      setTagInput("");
+                    }
+                  }}
+                  placeholder="Add custom tag and press Enter"
+                  className="w-full rounded-xl border border-[var(--edge)] bg-white/80 px-3 py-2 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    addTag(tagInput);
+                    setTagInput("");
+                  }}
+                  className="floating-link whitespace-nowrap"
+                >
+                  Add tag
+                </button>
+              </div>
+
+              {newTags.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {newTags.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => removeTag(tag)}
+                      className="mono-tag hover:bg-red-50 hover:text-red-700 transition-colors"
+                      title="Click to remove"
+                    >
+                      {tag} x
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
               <div className="mt-4 flex items-center justify-end gap-2">
                 <button onClick={() => setShowCreatePopup(false)} className="floating-link">Cancel</button>
                 <button onClick={createCourse} className="action-chip">Create</button>

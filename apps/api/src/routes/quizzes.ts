@@ -40,6 +40,15 @@ const questionUpdateSchema = z.object({
   options: z.array(optionSchema).min(2)
 });
 
+const REQUIRED_BADGE_LEVELS = [
+  { name: "Newbie", thresholdPoints: 20 },
+  { name: "Explorer", thresholdPoints: 40 },
+  { name: "Achiever", thresholdPoints: 60 },
+  { name: "Specialist", thresholdPoints: 80 },
+  { name: "Expert", thresholdPoints: 100 },
+  { name: "Master", thresholdPoints: 120 }
+] as const;
+
 function pointsForAttempt(attemptNumber: number, rewards: { r1: number; r2: number; r3: number; r4: number }) {
   if (attemptNumber <= 1) return rewards.r1;
   if (attemptNumber === 2) return rewards.r2;
@@ -48,15 +57,51 @@ function pointsForAttempt(attemptNumber: number, rewards: { r1: number; r2: numb
 }
 
 async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalPoints: number) {
+  // Ensure default badge ladder exists even if seed wasn't run.
+  await Promise.all(
+    REQUIRED_BADGE_LEVELS.map((badge) =>
+      tx.badgeDefinition.upsert({
+        where: { name: badge.name },
+        update: { thresholdPoints: badge.thresholdPoints },
+        create: {
+          name: badge.name,
+          thresholdPoints: badge.thresholdPoints
+        }
+      })
+    )
+  );
+
   const badges = await tx.badgeDefinition.findMany({
     where: {
       thresholdPoints: {
         lte: totalPoints
       }
+    },
+    orderBy: {
+      thresholdPoints: "asc"
     }
   });
 
+  const existing = await tx.userBadge.findMany({
+    where: {
+      userId,
+      badgeId: {
+        in: badges.map((badge) => badge.id)
+      }
+    },
+    select: {
+      badgeId: true
+    }
+  });
+
+  const existingBadgeIds = new Set(existing.map((item) => item.badgeId));
+  const newlyAssigned: string[] = [];
+
   for (const badge of badges) {
+    if (!existingBadgeIds.has(badge.id)) {
+      newlyAssigned.push(badge.name);
+    }
+
     await tx.userBadge.upsert({
       where: {
         userId_badgeId: {
@@ -71,6 +116,13 @@ async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalP
       }
     });
   }
+
+  const topBadge = badges.length > 0 ? badges[badges.length - 1] : null;
+
+  return {
+    newlyAssigned,
+    currentBadge: topBadge ? topBadge.name : null
+  };
 }
 
 async function assertLearnerCanAccessQuiz(quizId: string, userId: string, role: "ADMIN" | "INSTRUCTOR" | "LEARNER") {
@@ -287,13 +339,15 @@ quizzesRouter.post("/quizzes/:quizId/submit", requireAuth, async (req, res, next
         }
       });
 
-      await assignBadges(tx, req.user!.id, updatedUser.totalPoints);
+      const badgeUpdate = await assignBadges(tx, req.user!.id, updatedUser.totalPoints);
 
       return {
         attempt,
         attemptNumber,
         earnedPoints,
-        totalPoints: updatedUser.totalPoints
+        totalPoints: updatedUser.totalPoints,
+        newlyAssignedBadges: badgeUpdate.newlyAssigned,
+        currentBadge: badgeUpdate.currentBadge
       };
     });
 
@@ -305,7 +359,17 @@ quizzesRouter.post("/quizzes/:quizId/submit", requireAuth, async (req, res, next
         totalQuestions: total,
         correctAnswers: correct,
         earnedPoints: transactionResult.earnedPoints,
-        totalPoints: transactionResult.totalPoints
+        totalPoints: transactionResult.totalPoints,
+        rewardsByAttempt: {
+          firstTry: rewardConfig.r1,
+          secondTry: rewardConfig.r2,
+          thirdTry: rewardConfig.r3,
+          fourthTryAndMore: rewardConfig.r4
+        },
+        badges: {
+          newlyAssigned: transactionResult.newlyAssignedBadges,
+          currentBadge: transactionResult.currentBadge
+        }
       }
     });
   } catch (error) {

@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowRight, Award, BookOpen, Clock, TrendingUp, GraduationCap } from "lucide-react";
 import { ProtectedPage } from "@/components/protected-page";
 import { NotificationBell } from "@/components/NotificationBell";
+import { UserProfileMenu } from "@/components/user-profile-menu";
 import { apiRequest } from "@/lib/api";
-import { getCurrentSession, signOutSession } from "@/lib/supabase-auth";
+import { getCurrentSession } from "@/lib/supabase-auth";
 
 type MeResponse = {
   user: {
@@ -55,7 +55,6 @@ type ProgressSummaryResponse = {
 };
 
 export default function DashboardPage() {
-  const router = useRouter();
   const [profile, setProfile] = useState<MeResponse["user"]>(null);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [authoredCourses, setAuthoredCourses] = useState<AuthoredCourse[]>([]);
@@ -119,11 +118,6 @@ export default function DashboardPage() {
     };
   }, []);
 
-  async function onSignOut() {
-    await signOutSession();
-    router.replace("/login");
-  }
-
   const roleLabel = profile?.role?.toLowerCase() ?? "workspace";
 
   if (isLoading) {
@@ -165,14 +159,7 @@ export default function DashboardPage() {
                 <span>{roleLabel}</span>
                 <span className="text-[var(--ink-soft)] ml-2">{profile?.totalPoints ?? 0} pts</span>
               </div>
-              <div className="w-10 h-10 rounded-full bg-[#f2f0eb] overflow-hidden border border-[var(--edge)]">
-                <img
-                  src={`https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(profile?.fullName ?? "Instructor")}&backgroundColor=F8F7F4`}
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <button onClick={onSignOut} className="floating-link">Sign out</button>
+              <UserProfileMenu fullNameSeed={profile?.fullName ?? "Instructor"} />
             </div>
           </header>
 
@@ -265,12 +252,13 @@ export default function DashboardPage() {
   }
 
   // Calculate rank based on totalPoints
-  const rank = (profile?.totalPoints ?? 0) < 20 ? "Newbie" :
+  const rank = profile?.currentBadge ??
+               ((profile?.totalPoints ?? 0) < 20 ? "Newbie" :
                (profile?.totalPoints ?? 0) < 40 ? "Explorer" :
                (profile?.totalPoints ?? 0) < 60 ? "Achiever" :
                (profile?.totalPoints ?? 0) < 80 ? "Specialist" :
                (profile?.totalPoints ?? 0) < 100 ? "Expert" :
-               "Master";
+               "Master");
 
   return (
     <ProtectedPage>
@@ -293,14 +281,7 @@ export default function DashboardPage() {
               <span className="text-[var(--ink-soft)]">Rank:</span>
               <span className="font-bold text-[var(--ink)]">{rank}</span>
             </div>
-            <div className="w-10 h-10 rounded-full bg-[#f2f0eb] overflow-hidden border border-[var(--edge)]">
-              <img
-                src={`https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(profile?.fullName ?? "Learner")}&backgroundColor=F8F7F4`}
-                alt="Profile"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <button onClick={onSignOut} className="floating-link">Sign out</button>
+            <UserProfileMenu fullNameSeed={profile?.fullName ?? "Learner"} />
           </div>
         </header>
 

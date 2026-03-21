@@ -20,6 +20,23 @@ async function main() {
       create: user
     });
   }
+
+  const badgeLevels = [
+    { name: "Newbie", thresholdPoints: 20 },
+    { name: "Explorer", thresholdPoints: 40 },
+    { name: "Achiever", thresholdPoints: 60 },
+    { name: "Specialist", thresholdPoints: 80 },
+    { name: "Expert", thresholdPoints: 100 },
+    { name: "Master", thresholdPoints: 120 }
+  ];
+
+  for (const badge of badgeLevels) {
+    await prisma.badgeDefinition.upsert({
+      where: { name: badge.name },
+      update: { thresholdPoints: badge.thresholdPoints },
+      create: badge
+    });
+  }
 }
 
 main()

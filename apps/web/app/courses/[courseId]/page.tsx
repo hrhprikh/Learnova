@@ -30,6 +30,18 @@ type CourseResponse = {
     completionPercent: number;
     status: "YET_TO_START" | "IN_PROGRESS" | "COMPLETED";
   } | null;
+  certificate?: LearnerCertificate | null;
+};
+
+type LearnerCertificate = {
+  id: string;
+  certificateCode: string;
+  randomPart: number;
+  sequenceNumber: number;
+  issuedAt: string;
+  learnerName: string;
+  courseTitle: string;
+  instructorName: string;
 };
 
 type ReviewsResponse = {
@@ -61,6 +73,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [isOwner, setIsOwner] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+  const [showCertificateModal, setShowCertificateModal] = useState(false);
   const [messageForm, setMessageForm] = useState({ subject: "", body: "" });
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +83,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [paymentUiState, setPaymentUiState] = useState<"idle" | "processing" | "success">("idle");
   const [showPurchaseSuccess, setShowPurchaseSuccess] = useState(false);
+  const [certificate, setCertificate] = useState<LearnerCertificate | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -96,6 +110,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         setCourse(courseResponse.course);
         setLessons(courseResponse.course.lessons);
         setProgress(courseResponse.progress);
+        setCertificate(courseResponse.certificate ?? null);
         setReviews(reviewsResponse);
       }
     }
@@ -106,6 +121,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         setCourse(null);
         setLessons([]);
         setProgress(null);
+        setCertificate(null);
         setReviews(null);
       }
     });
@@ -217,6 +233,11 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const filteredLessons = lessons.filter(lesson => 
     lesson.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  function renderStars(ratingValue: number): string {
+    const safeRating = Math.max(0, Math.min(5, Math.round(ratingValue)));
+    return `${"⭐".repeat(safeRating)}${"☆".repeat(5 - safeRating)}`;
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)] pb-24">
@@ -332,7 +353,9 @@ export default function CoursePage({ params }: { params: { courseId: string } })
               <div className="mt-4 space-y-3">
                 {(reviews?.reviews ?? []).slice(0, 5).map((review) => (
                   <article key={review.id} className="lesson-row">
-                    <span className="mono-tag">{review.rating}/5</span>
+                    <span className="mono-tag tracking-wide" title={`${review.rating}/5`}>
+                      {renderStars(review.rating)}
+                    </span>
                     <span className="body-copy flex-1 text-sm">{review.text}</span>
                     <span className="mono-tag text-[9px]">{review.user.fullName}</span>
                   </article>
@@ -420,12 +443,20 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   if (!token) return;
                   try {
                     setError(null);
-                    await apiRequest(`/courses/${params.courseId}/complete`, {
+                    const response = await apiRequest<{ progress: CourseResponse["progress"]; certificate?: LearnerCertificate }>(`/courses/${params.courseId}/complete`, {
                       method: "POST",
                       token
                     });
                     if (progress) {
-                      setProgress({ ...progress, status: "COMPLETED" });
+                      setProgress({
+                        ...progress,
+                        status: "COMPLETED",
+                        completionPercent: 100
+                      });
+                    }
+                    if (response.certificate) {
+                      setCertificate(response.certificate);
+                      setShowCertificateModal(true);
                     }
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Failed to complete course");
@@ -457,8 +488,18 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                           </button>
                         )}
                         {progress?.status === "COMPLETED" && (
-                          <div className="p-4 bg-[var(--accent-blue)]/10 rounded-2xl border border-[var(--accent-blue)]/20 text-center">
-                            <p className="font-heading text-sm font-bold text-[var(--accent-blue)]">Course Completed! 🎉</p>
+                          <div className="space-y-3">
+                            <div className="p-4 bg-[var(--accent-blue)]/10 rounded-2xl border border-[var(--accent-blue)]/20 text-center">
+                              <p className="font-heading text-sm font-bold text-[var(--accent-blue)]">Course Completed! 🎉</p>
+                            </div>
+                            {certificate ? (
+                              <button
+                                onClick={() => setShowCertificateModal(true)}
+                                className="w-full rounded-xl border border-[var(--edge)] bg-white py-3 text-xs font-semibold hover:border-[var(--ink)] transition-colors"
+                              >
+                                View Certificate ({certificate.certificateCode})
+                              </button>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -604,6 +645,52 @@ export default function CoursePage({ params }: { params: { courseId: string } })
 
         {error ? <p className="mt-6 text-sm text-red-600">{error}</p> : null}
       </main>
+
+      {showCertificateModal && certificate && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full border border-[var(--edge)] shadow-2xl relative animate-in zoom-in-95 duration-300">
+            <button
+              onClick={() => setShowCertificateModal(false)}
+              className="absolute top-6 right-6 text-[var(--ink-soft)] hover:text-[var(--ink)]"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="text-center border border-[var(--edge)] rounded-2xl p-8 bg-[#fffdf8]">
+              <p className="font-mono uppercase text-[10px] tracking-[0.24em] text-[var(--ink-soft)] mb-3">Certificate of Completion</p>
+              <h3 className="font-heading text-4xl mb-3">Learnova</h3>
+              <p className="text-sm text-[var(--ink-soft)] mb-6">This certifies that</p>
+              <p className="font-heading text-3xl mb-4">{certificate.learnerName}</p>
+              <p className="text-sm text-[var(--ink-soft)] mb-1">has successfully completed</p>
+              <p className="font-heading text-2xl mb-6">{certificate.courseTitle}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                <div className="rounded-xl border border-[var(--edge)] bg-white px-4 py-3">
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Certificate ID</p>
+                  <p className="text-sm font-semibold mt-1">{certificate.certificateCode}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--edge)] bg-white px-4 py-3">
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Issued At</p>
+                  <p className="text-sm font-semibold mt-1">{new Date(certificate.issuedAt).toLocaleDateString()}</p>
+                </div>
+                <div className="rounded-xl border border-[var(--edge)] bg-white px-4 py-3 md:col-span-2">
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Instructor</p>
+                  <p className="text-sm font-semibold mt-1">{certificate.instructorName}</p>
+                </div>
+              </div>
+              <p className="mt-5 text-xs text-[var(--ink-soft)]">Pattern: random 4-digit ({certificate.randomPart}) + running 5-digit ({String(certificate.sequenceNumber).padStart(5, "0")})</p>
+              <p className="mt-2 text-xs text-[var(--ink-soft)]">Issued by Learnova Academy as proof of successful completion.</p>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => window.print()}
+                className="rounded-xl bg-[var(--ink)] text-white px-6 py-3 text-xs font-semibold hover:scale-[1.02] active:scale-[0.98] transition-transform"
+              >
+                Download / Print Certificate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Message Modal */}
       {showMessageModal && (

@@ -54,6 +54,82 @@ function parseBoolean(value: unknown): boolean {
   return value === true || value === "true";
 }
 
+async function syncCourseViewsToEnrollmentCount(courseId: string) {
+  const enrolledCount = await prisma.courseAttendee.count({
+    where: { courseId }
+  });
+
+  await prisma.course.update({
+    where: { id: courseId },
+    data: { viewsCount: enrolledCount },
+    select: { id: true }
+  });
+
+  return enrolledCount;
+}
+
+function generateRandomFourDigitNumber(): number {
+  return Math.floor(1000 + Math.random() * 9000);
+}
+
+function formatCertificateCode(randomPart: number, sequenceNumber: number): string {
+  return `CERT-${randomPart}-${String(sequenceNumber).padStart(5, "0")}`;
+}
+
+async function ensureCertificateIssued(courseId: string, userId: string) {
+  const existing = await prisma.certificate.findUnique({
+    where: {
+      userId_courseId: {
+        userId,
+        courseId
+      }
+    },
+    include: {
+      user: { select: { fullName: true } },
+      course: {
+        select: {
+          title: true,
+          createdBy: {
+            select: { fullName: true }
+          }
+        }
+      }
+    }
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const pendingCode = `PENDING-${userId}-${courseId}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const created = await prisma.certificate.create({
+    data: {
+      userId,
+      courseId,
+      randomPart: generateRandomFourDigitNumber(),
+      certificateCode: pendingCode
+    }
+  });
+
+  const finalizedCode = formatCertificateCode(created.randomPart, created.sequenceNumber);
+
+  return prisma.certificate.update({
+    where: { id: created.id },
+    data: { certificateCode: finalizedCode },
+    include: {
+      user: { select: { fullName: true } },
+      course: {
+        select: {
+          title: true,
+          createdBy: {
+            select: { fullName: true }
+          }
+        }
+      }
+    }
+  });
+}
+
 async function enrollLearnerInCourse(courseId: string, userId: string) {
   let attendee;
   try {
@@ -88,6 +164,8 @@ async function enrollLearnerInCourse(courseId: string, userId: string) {
       status: "YET_TO_START"
     }
   });
+
+  await syncCourseViewsToEnrollmentCount(courseId);
 
   // Notify instructor
   try {
@@ -227,6 +305,8 @@ coursesRouter.delete(
       await prisma.courseProgress.deleteMany({
         where: { courseId, userId }
       });
+
+      await syncCourseViewsToEnrollmentCount(courseId);
 
       return res.status(200).json({ message: "Attendee removed" });
     } catch (error) {
@@ -416,6 +496,7 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
           0
         ),
         attendeesCount: course._count?.attendees ?? 0,
+        viewsCount: course._count?.attendees ?? 0,
         completedCount: course._count?.progress ?? 0
       }))
     });
@@ -542,7 +623,66 @@ coursesRouter.post("/courses/:courseId/complete", requireAuth, async (req, res, 
       }
     });
 
-    return res.status(200).json({ progress });
+    const certificate = await ensureCertificateIssued(courseId, req.user!.id);
+
+    return res.status(200).json({
+      progress,
+      certificate: {
+        id: certificate.id,
+        certificateCode: certificate.certificateCode,
+        randomPart: certificate.randomPart,
+        sequenceNumber: certificate.sequenceNumber,
+        issuedAt: certificate.issuedAt,
+        learnerName: certificate.user.fullName,
+        courseTitle: certificate.course.title,
+        instructorName: certificate.course.createdBy.fullName
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+coursesRouter.get("/courses/:courseId/certificate", requireAuth, async (req, res, next) => {
+  try {
+    const courseId = courseIdSchema.parse(req.params.courseId);
+
+    const certificate = await prisma.certificate.findUnique({
+      where: {
+        userId_courseId: {
+          userId: req.user!.id,
+          courseId
+        }
+      },
+      include: {
+        user: { select: { fullName: true } },
+        course: {
+          select: {
+            title: true,
+            createdBy: {
+              select: { fullName: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!certificate) {
+      return res.status(404).json({ message: "Certificate not found for this learner and course" });
+    }
+
+    return res.status(200).json({
+      certificate: {
+        id: certificate.id,
+        certificateCode: certificate.certificateCode,
+        randomPart: certificate.randomPart,
+        sequenceNumber: certificate.sequenceNumber,
+        issuedAt: certificate.issuedAt,
+        learnerName: certificate.user.fullName,
+        courseTitle: certificate.course.title,
+        instructorName: certificate.course.createdBy.fullName
+      }
+    });
   } catch (error) {
     return next(error);
   }
@@ -552,11 +692,8 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
   try {
     const courseId = courseIdSchema.parse(req.params.courseId);
 
-    const course = await prisma.course.update({
+    const course = await prisma.course.findUnique({
       where: { id: courseId },
-      data: {
-        viewsCount: { increment: 1 }
-      },
       include: {
         tags: {
           select: { id: true, tag: true }
@@ -576,6 +713,15 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
       return res.status(404).json({ message: "Course not found" });
     }
 
+    const enrolledCount = await prisma.courseAttendee.count({ where: { courseId } });
+    if (course.viewsCount !== enrolledCount) {
+      await prisma.course.update({
+        where: { id: courseId },
+        data: { viewsCount: enrolledCount },
+        select: { id: true }
+      });
+    }
+
     const user = req.user;
     const isOwner = !!user && (user.role === "ADMIN" || course.createdById === user.id);
 
@@ -593,6 +739,17 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
       completionPercent: 0,
       status: "YET_TO_START" as "YET_TO_START" | "IN_PROGRESS" | "COMPLETED"
     };
+
+    let certificate: {
+      id: string;
+      certificateCode: string;
+      randomPart: number;
+      sequenceNumber: number;
+      issuedAt: Date;
+      learnerName: string;
+      courseTitle: string;
+      instructorName: string;
+    } | null = null;
 
     if (user) {
       let status: "YET_TO_START" | "IN_PROGRESS" | "COMPLETED" = "YET_TO_START";
@@ -617,9 +774,31 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
           course.lessons.length === 0 ? 0 : Math.round((completedLessons / course.lessons.length) * 100),
         status
       };
+
+      if (status === "COMPLETED") {
+        const learnerCertificate = await ensureCertificateIssued(courseId, user.id);
+        certificate = {
+          id: learnerCertificate.id,
+          certificateCode: learnerCertificate.certificateCode,
+          randomPart: learnerCertificate.randomPart,
+          sequenceNumber: learnerCertificate.sequenceNumber,
+          issuedAt: learnerCertificate.issuedAt,
+          learnerName: learnerCertificate.user.fullName,
+          courseTitle: learnerCertificate.course.title,
+          instructorName: learnerCertificate.course.createdBy.fullName
+        };
+      }
     }
 
-    return res.status(200).json({ course, progress, isOwner });
+    return res.status(200).json({
+      course: {
+        ...course,
+        viewsCount: enrolledCount
+      },
+      progress,
+      isOwner,
+      certificate
+    });
   } catch (error) {
     return next(error);
   }

@@ -25,6 +25,7 @@ model User {
   reviews            Review[]
   badges             UserBadge[]
   notifications      Notification[]
+  certificates       Certificate[]
 }
 
 model Course {
@@ -49,9 +50,27 @@ model Course {
   attendees         CourseAttendee[]
   progress          CourseProgress[]
   reviews           Review[]
+  certificates      Certificate[]
 
   @@index([createdById])
   @@index([published, visibility])
+}
+
+model Certificate {
+  id              String   @id @default(cuid())
+  userId          String
+  courseId        String
+  randomPart      Int
+  sequenceNumber  Int      @unique @default(autoincrement())
+  certificateCode String   @unique
+  issuedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course          Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
 }
 
 model CourseAttendee {
