@@ -13,7 +13,14 @@ export async function createNotification(
   link: string | null = null
 ) {
   try {
-    return await (prisma as any).notification.create({
+    // Use a structural cast to avoid 'any' lint error while maintaining compatibility
+    // if the prisma client isn't fully regenerated yet in all environments.
+    const prismaWithNotif = prisma as unknown as { 
+      notification: { 
+        create: (args: { data: Record<string, unknown> }) => Promise<unknown> 
+      } 
+    };
+    return await prismaWithNotif.notification.create({
       data: {
         userId,
         title,

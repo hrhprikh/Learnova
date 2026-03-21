@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Plus, Eye, BarChart2, Share2, Layout, Grid, Search, Clock, BookOpen, Users, MoreVertical, Filter, Mail } from "lucide-react";
+import { Plus, Eye, BarChart2, Share2, Layout, Grid, Search, Clock, BookOpen, Users } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { RoleGate } from "@/components/role-gate";
 import { apiRequest } from "@/lib/api";

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, tryAttachUser } from "../middleware/auth.middleware.js";
 import { requireRole } from "../middleware/rbac.middleware.js";
@@ -336,7 +337,7 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
       }
     }
 
-    const where: Record<string, any> = {
+    const where: Prisma.CourseWhereInput = {
       OR: [
         {
           title: {
@@ -363,7 +364,9 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
       }
     } else {
       where.published = true;
-      where.visibility = user ? { in: ["EVERYONE", "SIGNED_IN"] } : "EVERYONE";
+      where.visibility = user
+        ? { in: ["EVERYONE", "SIGNED_IN"] }
+        : "EVERYONE";
     }
 
     const courses = await prisma.course.findMany({
@@ -391,12 +394,12 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
     });
 
     return res.status(200).json({
-      courses: courses.map((course: any) => ({
+      courses: courses.map((course) => ({
         ...course,
         instructorName: course.createdBy?.fullName || "Instructor",
         lessonCount: course.lessons.length,
         durationSeconds: course.lessons.reduce(
-          (acc: number, lesson: { durationSeconds: number }) => acc + lesson.durationSeconds,
+          (acc, lesson) => acc + lesson.durationSeconds,
           0
         ),
         attendeesCount: course._count?.attendees ?? 0,

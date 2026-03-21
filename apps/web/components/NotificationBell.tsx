@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Bell, X, Check, Trash2, Mail } from "lucide-react";
+import { Bell, Check, Trash2, Mail } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
 

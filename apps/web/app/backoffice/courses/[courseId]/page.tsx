@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle, Eye, Settings, Share2, Tag, Users, Mail, Save } from "lucide-react";
+import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle, Eye, Settings, Share2, Tag, Users, Mail } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";

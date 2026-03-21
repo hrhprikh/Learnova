@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Menu, ChevronLeft, ChevronRight, CheckCircle2, Lock, PlayCircle, FileText, ImageIcon, HelpCircle, X, Download, ExternalLink, Mail, CheckCircle, Save } from "lucide-react";
+import { Menu, ChevronLeft, ChevronRight, CheckCircle2, HelpCircle, X, Download, ExternalLink } from "lucide-react";
 import YouTube, { YouTubeProps } from "react-youtube";
 import { ProtectedPage } from "@/components/protected-page";
 import { NotificationBell } from "@/components/NotificationBell";
