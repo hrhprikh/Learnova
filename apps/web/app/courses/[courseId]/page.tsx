@@ -42,6 +42,13 @@ type ReviewsResponse = {
   }>;
 };
 
+type EnrollmentPaymentPayload = {
+  paymentToken?: string;
+  paymentStatus?: "PAID";
+  paymentMethod?: "MOCK_CARD";
+  transactionId?: string;
+};
+
 export default function CoursePage({ params }: { params: { courseId: string } }) {
   const router = useRouter();
   const [course, setCourse] = useState<CourseResponse["course"] | null>(null);
@@ -61,6 +68,8 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [rating, setRating] = useState(5);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
+  const [paymentUiState, setPaymentUiState] = useState<"idle" | "processing" | "success">("idle");
+  const [showPurchaseSuccess, setShowPurchaseSuccess] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -106,10 +115,10 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     };
   }, [params.courseId]);
 
-  async function enrollNow(paymentToken?: string) {
+  async function enrollNow(paymentPayload?: EnrollmentPaymentPayload, closeModalOnSuccess = true) {
     if (!token) {
       router.push("/login");
-      return;
+      return false;
     }
 
     try {
@@ -118,14 +127,58 @@ export default function CoursePage({ params }: { params: { courseId: string } })
       await apiRequest(`/courses/${params.courseId}/enroll`, {
         method: "POST",
         token,
-        body: paymentToken ? { paymentToken } : undefined
+        body: paymentPayload
       });
       setIsEnrolled(true);
-      setShowBuyModal(false);
+      if (closeModalOnSuccess) {
+        setShowBuyModal(false);
+      }
+      return true;
     } catch (enrollError) {
-      setError(enrollError instanceof Error ? enrollError.message : "Enrollment failed");
+      const message = enrollError instanceof Error ? enrollError.message : "Enrollment failed";
+      setError(message);
+      if (course?.accessRule === "PAYMENT" && message.toLowerCase().includes("requires payment")) {
+        setShowBuyModal(true);
+      }
+      return false;
     } finally {
       setIsEnrolling(false);
+    }
+  }
+
+  async function handleMockCheckout() {
+    if (!token) {
+      setShowBuyModal(false);
+      router.push("/login");
+      return;
+    }
+
+    const transactionId = `mock_paid_${Date.now()}`;
+    try {
+      setPaymentUiState("processing");
+      setError(null);
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const enrolled = await enrollNow(
+        {
+          paymentToken: transactionId,
+          paymentStatus: "PAID",
+          paymentMethod: "MOCK_CARD",
+          transactionId
+        },
+        false
+      );
+      if (!enrolled) {
+        setPaymentUiState("idle");
+        return;
+      }
+      setPaymentUiState("success");
+      setTimeout(() => {
+        setShowBuyModal(false);
+        setShowPurchaseSuccess(true);
+        setPaymentUiState("idle");
+      }, 700);
+    } catch {
+      setPaymentUiState("idle");
     }
   }
 
@@ -429,7 +482,13 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         {showBuyModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
             <div className="bg-white rounded-[2.5rem] p-10 max-w-md w-full shadow-2xl relative animate-in zoom-in-95 duration-300">
-              <button onClick={() => setShowBuyModal(false)} className="absolute top-6 right-6 text-[var(--ink-soft)] hover:text-[var(--ink)]">
+              <button
+                onClick={() => {
+                  setShowBuyModal(false);
+                  setPaymentUiState("idle");
+                }}
+                className="absolute top-6 right-6 text-[var(--ink-soft)] hover:text-[var(--ink)]"
+              >
                  <ArrowLeft className="w-5 h-5" />
               </button>
               <h2 className="font-heading text-3xl font-bold mb-2">Secure Checkout</h2>
@@ -445,17 +504,102 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                  </div>
               </div>
 
-              <button 
-                onClick={() => enrollNow("mock_success_token")}
-                disabled={isEnrolling}
+              <button
+                onClick={handleMockCheckout}
+                disabled={isEnrolling || paymentUiState === "processing" || paymentUiState === "success"}
                 className="w-full bg-[var(--ink)] text-white py-4 rounded-xl font-bold text-sm shadow-xl hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
               >
-                {isEnrolling ? "Processing..." : "Confirm Purchase"}
+                {paymentUiState === "processing"
+                  ? "Processing mock payment..."
+                  : paymentUiState === "success"
+                    ? "Payment successful"
+                    : "Confirm Purchase"}
               </button>
-              <p className="text-center mt-6 text-[10px] text-[var(--ink-soft)]">Secure Mock Payment — No actual charges apply.</p>
+              {paymentUiState === "success" ? (
+                <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center">
+                  <p className="text-xs font-semibold text-emerald-700">Payment done. Enrolling you now.</p>
+                </div>
+              ) : (
+                <p className="text-center mt-6 text-[10px] text-[var(--ink-soft)]">Secure Mock Payment - No actual charges apply.</p>
+              )}
             </div>
           </div>
         )}
+
+        {showPurchaseSuccess && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="relative overflow-hidden bg-white rounded-[2rem] p-8 max-w-md w-full border border-emerald-100 shadow-2xl animate-in zoom-in-95 duration-300">
+              <div className="absolute inset-0 pointer-events-none">
+                <span className="absolute left-[10%] top-[18%] h-2 w-2 rounded-full bg-emerald-300 confetti-pop" />
+                <span className="absolute left-[20%] top-[8%] h-2.5 w-2.5 rounded-full bg-sky-300 confetti-pop delay-100" />
+                <span className="absolute left-[36%] top-[14%] h-1.5 w-1.5 rounded-full bg-amber-300 confetti-pop delay-200" />
+                <span className="absolute right-[24%] top-[10%] h-2 w-2 rounded-full bg-rose-300 confetti-pop delay-300" />
+                <span className="absolute right-[12%] top-[20%] h-2.5 w-2.5 rounded-full bg-violet-300 confetti-pop delay-500" />
+              </div>
+
+              <div className="relative z-10 text-center">
+                <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center ring-8 ring-emerald-50 success-pulse">
+                  <CheckCircle2 className="w-9 h-9 text-emerald-600" />
+                </div>
+                <h3 className="font-heading text-3xl leading-tight mb-2">Congratulations!</h3>
+                <p className="text-sm text-[var(--ink-soft)] mb-1">Course purchased successfully.</p>
+                <p className="text-xs font-mono uppercase tracking-widest text-emerald-700 mb-6">You are now enrolled</p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setShowPurchaseSuccess(false)}
+                    className="rounded-xl border border-[var(--edge)] py-3 text-xs font-semibold hover:border-[var(--ink)] transition-colors"
+                  >
+                    Close
+                  </button>
+                  <Link
+                    href={firstLessonId ? `/learn/${params.courseId}/${firstLessonId}` : `/courses/${params.courseId}`}
+                    onClick={() => setShowPurchaseSuccess(false)}
+                    className="rounded-xl bg-[var(--ink)] text-white py-3 text-xs font-semibold hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                  >
+                    Start Learning
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <style jsx>{`
+          .confetti-pop {
+            animation: confetti-pop 900ms ease-out both;
+          }
+
+          .success-pulse {
+            animation: success-pulse 1200ms ease-out;
+          }
+
+          @keyframes confetti-pop {
+            0% {
+              transform: translateY(10px) scale(0.4);
+              opacity: 0;
+            }
+            50% {
+              opacity: 1;
+            }
+            100% {
+              transform: translateY(-26px) scale(1);
+              opacity: 0;
+            }
+          }
+
+          @keyframes success-pulse {
+            0% {
+              transform: scale(0.7);
+            }
+            60% {
+              transform: scale(1.1);
+            }
+            100% {
+              transform: scale(1);
+            }
+          }
+        `}</style>
 
 
         {error ? <p className="mt-6 text-sm text-red-600">{error}</p> : null}

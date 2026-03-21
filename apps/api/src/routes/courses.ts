@@ -43,6 +43,13 @@ const updateCourseSchema = courseInputSchema.partial().superRefine((value, ctx) 
 
 const courseIdSchema = z.string().min(1);
 
+const paymentEnrollmentSchema = z.object({
+  paymentToken: z.string().min(1).optional(),
+  paymentStatus: z.enum(["PAID"]).optional(),
+  paymentMethod: z.enum(["MOCK_CARD"]).optional(),
+  transactionId: z.string().min(1).optional()
+});
+
 function parseBoolean(value: unknown): boolean {
   return value === true || value === "true";
 }
@@ -467,13 +474,22 @@ coursesRouter.post("/courses/:courseId/enroll", requireAuth, async (req, res, ne
     }
 
     if (course.accessRule === "PAYMENT") {
-      const { paymentToken } = req.body;
-      if (!paymentToken) {
-        return res.status(402).json({ message: "This course requires payment" });
-      }
-      // Mock payment validation logic
-      if (paymentToken !== "mock_success_token") {
-        return res.status(400).json({ message: "Invalid payment token" });
+      const paymentPayload = paymentEnrollmentSchema.parse(req.body ?? {});
+      const hasMockToken =
+        paymentPayload.paymentToken === "mock_success_token" ||
+        (typeof paymentPayload.paymentToken === "string" &&
+          paymentPayload.paymentToken.startsWith("mock_paid_"));
+      const hasPaidPayload =
+        paymentPayload.paymentStatus === "PAID" &&
+        paymentPayload.paymentMethod === "MOCK_CARD" &&
+        !!paymentPayload.transactionId;
+
+      if (!hasMockToken && !hasPaidPayload) {
+        return res.status(402).json({
+          message: "This course requires payment",
+          paymentRequired: true,
+          acceptedMockMethods: ["MOCK_CARD"]
+        });
       }
     }
 
