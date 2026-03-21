@@ -28,6 +28,11 @@ type QuizSubmitResponse = {
     totalQuestions: number;
     correctAnswers: number;
     earnedPoints: number;
+    totalPoints: number;
+    badges: {
+      newlyAssigned: string[];
+      currentBadge: string | null;
+    };
   };
 };
 
@@ -191,12 +196,26 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
                 {/* Decorative Elements */}
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-2 bg-gradient-to-r from-[var(--accent-blue)] via-[var(--accent-peach)] to-[var(--accent-blue)]" />
                 <div className="w-24 h-24 rounded-full bg-[var(--accent-blue)]/10 flex items-center justify-center mx-auto mb-8 animate-bounce">
-                   <div className="w-16 h-16 rounded-full bg-[var(--accent-blue)] flex items-center justify-center text-white text-3xl font-bold shadow-lg shadow-[var(--accent-blue)]/40">
+                   <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#f7d87b] via-[#f3c447] to-[#d99b1f] flex items-center justify-center text-[#8a5a00] text-3xl font-bold shadow-lg shadow-amber-300/60 border border-amber-200">
                       ★
                    </div>
                 </div>
 
                 <h2 className="font-heading text-4xl font-bold mb-4">Quiz Complete!</h2>
+                {result.badges.newlyAssigned.length > 0 ? (
+                  <div className="relative mb-6 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 p-4 level-up-glow overflow-hidden">
+                    <span className="absolute top-2 left-3 text-xs">✨</span>
+                    <span className="absolute top-2 right-3 text-xs">✨</span>
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-amber-700 mb-1">Level Up</p>
+                    <p className="text-sm font-semibold text-amber-900">
+                      New badge{result.badges.newlyAssigned.length > 1 ? "s" : ""} unlocked: {result.badges.newlyAssigned.join(", ")}
+                    </p>
+                    {result.badges.currentBadge ? (
+                      <p className="text-[11px] text-amber-800 mt-1">Current Rank: {result.badges.currentBadge}</p>
+                    ) : null}
+                    <div className="pointer-events-none absolute inset-x-0 -top-6 h-6 level-up-sparkle" />
+                  </div>
+                ) : null}
                 <div className="space-y-4 mb-10">
                    <div className="inline-block px-4 py-1.5 rounded-full bg-[#f2f0eb] border border-[var(--edge)] font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)] mb-2">
                      Attempt #{result.attemptNumber}
@@ -228,6 +247,46 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
             </div>
           ) : null}
         </main>
+
+        <style jsx>{`
+          .level-up-glow {
+            animation: level-up-glow 1.3s ease-out;
+          }
+
+          .level-up-sparkle {
+            background: radial-gradient(circle at center, rgba(251, 191, 36, 0.65), rgba(251, 191, 36, 0));
+            animation: level-up-sparkle 1.3s ease-out;
+          }
+
+          @keyframes level-up-glow {
+            0% {
+              transform: scale(0.96);
+              opacity: 0;
+            }
+            60% {
+              transform: scale(1.01);
+              opacity: 1;
+            }
+            100% {
+              transform: scale(1);
+              opacity: 1;
+            }
+          }
+
+          @keyframes level-up-sparkle {
+            0% {
+              transform: translateY(0) scaleX(0.8);
+              opacity: 0;
+            }
+            40% {
+              opacity: 1;
+            }
+            100% {
+              transform: translateY(34px) scaleX(1.2);
+              opacity: 0;
+            }
+          }
+        `}</style>
       </div>
     </ProtectedPage>
   );
