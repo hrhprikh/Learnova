@@ -79,7 +79,16 @@ reportsRouter.get(
         timeSpentMap.set(lp.userId, (timeSpentMap.get(lp.userId) || 0) + lp.timeSpentSeconds);
       }
 
-      const rows: ReportRow[] = progress.map((p: any) => ({
+      const rows: ReportRow[] = (progress as unknown as Array<{
+        userId: string;
+        user: { fullName: string; email: string };
+        startedAt: Date | null;
+        completedAt: Date | null;
+        completedLessons: number;
+        totalLessons: number | null;
+        completionPercent: number;
+        status: string;
+      }>).map((p) => ({
         participantName: p.user.fullName,
         participantEmail: p.user.email,
         enrolledAt: enrollmentMap.get(p.userId) || null,
@@ -89,7 +98,7 @@ reportsRouter.get(
         completedLessons: p.completedLessons,
         totalLessons: p.totalLessons || totalLessons,
         completionPercent: p.completionPercent,
-        status: p.status
+        status: p.status as "YET_TO_START" | "IN_PROGRESS" | "COMPLETED"
       }));
 
       return res.status(200).json({

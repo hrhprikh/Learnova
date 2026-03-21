@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, tryAttachUser } from "../middleware/auth.middleware.js";
 import { requireRole } from "../middleware/rbac.middleware.js";
@@ -395,16 +394,20 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
     });
 
     return res.status(200).json({
-      courses: courses.map((course: any) => ({
+      courses: (courses as unknown as Array<{
+        createdBy: { fullName: string } | null;
+        lessons: { durationSeconds: number }[];
+        _count: { attendees: number; progress: number } | null;
+      }>).map((course) => ({
         ...course,
-        instructorName: (course as any).createdBy?.fullName || "Instructor",
-        lessonCount: (course as any).lessons.length,
-        durationSeconds: (course as any).lessons.reduce(
+        instructorName: course.createdBy?.fullName || "Instructor",
+        lessonCount: course.lessons.length,
+        durationSeconds: course.lessons.reduce(
           (acc: number, lesson: { durationSeconds: number }) => acc + lesson.durationSeconds,
           0
         ),
-        attendeesCount: (course as any)._count?.attendees ?? 0,
-        completedCount: (course as any)._count?.progress ?? 0
+        attendeesCount: course._count?.attendees ?? 0,
+        completedCount: course._count?.progress ?? 0
       }))
     });
   } catch (error) {
