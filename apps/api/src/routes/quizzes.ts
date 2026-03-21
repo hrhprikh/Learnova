@@ -414,7 +414,7 @@ quizzesRouter.put("/quizzes/:quizId/questions/:questionId", requireAuth, require
       return res.status(permission.error.status).json({ message: permission.error.message });
     }
 
-    const updatedQuestion = await prisma.$transaction(async (tx: any) => {
+    const updatedQuestion = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.quizQuestion.update({
         where: { id: questionId },
         data: {
