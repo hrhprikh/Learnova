@@ -15,6 +15,27 @@ const reportQuerySchema = z.object({
   search: z.string().trim().optional()
 });
 
+type ProgressStatusGroup = {
+  status: "YET_TO_START" | "IN_PROGRESS" | "COMPLETED";
+  _count: { _all: number };
+};
+
+type AdminReportRow = {
+  srNo: number;
+  courseId: string;
+  courseName: string;
+  participantName: string;
+  participantEmail: string;
+  enrolledAt: Date | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  timeSpentSeconds: number;
+  completedLessons: number;
+  totalLessons: number;
+  completionPercent: number;
+  status: "YET_TO_START" | "IN_PROGRESS" | "COMPLETED";
+};
+
 export const adminRouter = Router();
 
 adminRouter.use("/admin", requireAuth, requireRole("ADMIN"));
@@ -31,7 +52,9 @@ adminRouter.get("/admin/overview", async (_req, res, next) => {
         prisma.courseProgress.groupBy({ by: ["status"], _count: { _all: true } })
       ]);
 
-    const statusMap = new Map(progressStatus.map((item) => [item.status, item._count._all]));
+    const statusMap = new Map(
+      (progressStatus as ProgressStatusGroup[]).map((item: ProgressStatusGroup) => [item.status, item._count._all])
+    );
 
     return res.status(200).json({
       overview: {
@@ -151,8 +174,12 @@ adminRouter.get("/admin/reports/course-progress", async (req, res, next) => {
       orderBy: [{ updatedAt: "desc" }]
     });
 
-    const userIds = Array.from(new Set(rows.map((row) => row.userId)));
-    const courseIds = Array.from(new Set(rows.map((row) => row.courseId)));
+    const userIds = Array.from(
+      new Set(rows.map((row: { userId: string }) => row.userId))
+    );
+    const courseIds = Array.from(
+      new Set(rows.map((row: { courseId: string }) => row.courseId))
+    );
 
     const [attendees, lessonProgress] = await Promise.all([
       prisma.courseAttendee.findMany({
@@ -176,7 +203,7 @@ adminRouter.get("/admin/reports/course-progress", async (req, res, next) => {
       timeSpentMap.set(key, (timeSpentMap.get(key) ?? 0) + lp.timeSpentSeconds);
     }
 
-    let reportRows = rows.map((row, index) => {
+    let reportRows: AdminReportRow[] = rows.map((row: (typeof rows)[number], index: number) => {
       const key = `${row.userId}:${row.courseId}`;
       return {
         srNo: index + 1,
@@ -198,21 +225,21 @@ adminRouter.get("/admin/reports/course-progress", async (req, res, next) => {
     if (query.search) {
       const needle = query.search.toLowerCase();
       reportRows = reportRows.filter(
-        (row) =>
+        (row: AdminReportRow) =>
           row.courseName.toLowerCase().includes(needle) ||
           row.participantName.toLowerCase().includes(needle) ||
           row.participantEmail.toLowerCase().includes(needle)
       );
     }
 
-    reportRows = reportRows.map((row, index) => ({ ...row, srNo: index + 1 }));
+    reportRows = reportRows.map((row: AdminReportRow, index: number) => ({ ...row, srNo: index + 1 }));
 
     return res.status(200).json({
       overview: {
         totalParticipants: reportRows.length,
-        yetToStart: reportRows.filter((row) => row.status === "YET_TO_START").length,
-        inProgress: reportRows.filter((row) => row.status === "IN_PROGRESS").length,
-        completed: reportRows.filter((row) => row.status === "COMPLETED").length
+        yetToStart: reportRows.filter((row: AdminReportRow) => row.status === "YET_TO_START").length,
+        inProgress: reportRows.filter((row: AdminReportRow) => row.status === "IN_PROGRESS").length,
+        completed: reportRows.filter((row: AdminReportRow) => row.status === "COMPLETED").length
       },
       rows: reportRows
     });
