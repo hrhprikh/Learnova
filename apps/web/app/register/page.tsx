@@ -105,7 +105,7 @@ export default function RegisterPage() {
           <p className="mono-note">onboarding</p>
           <h1 className="font-heading text-5xl lg:text-6xl leading-[1.05] mt-4">Create your Learnova profile.</h1>
           <p className="text-[var(--ink-soft)] mt-4 max-w-md leading-relaxed">
-            Choose learner or instructor account type at signup. Admin accounts are provisioned separately.
+            Choose learner or instructor account type at signup.
           </p>
         </section>
 

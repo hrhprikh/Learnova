@@ -34,6 +34,16 @@ type CoursesResponse = {
   courses: CourseSummary[];
 };
 
+type AuthoredCourse = {
+  id: string;
+  title: string;
+  description: string | null;
+  published: boolean;
+  tags: Array<{ id: string; tag: string }>;
+  attendeesCount?: number;
+  completedCount?: number;
+};
+
 type ProgressSummaryResponse = {
   summary: {
     totalCourses: number;
@@ -47,8 +57,10 @@ export default function DashboardPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<MeResponse["user"]>(null);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
+  const [authoredCourses, setAuthoredCourses] = useState<AuthoredCourse[]>([]);
   const [summary, setSummary] = useState<ProgressSummaryResponse["summary"] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -65,22 +77,36 @@ export default function DashboardPage() {
           token
         });
 
-        const courseResponse = await apiRequest<CoursesResponse>("/courses/enrolled", {
-          token
-        });
+        const isInstructor = response.user?.role === "INSTRUCTOR" || response.user?.role === "ADMIN";
 
-        const progressSummary = await apiRequest<ProgressSummaryResponse>("/progress/summary", {
-          token
-        });
+        if (isInstructor) {
+          const mineResponse = await apiRequest<{ courses: AuthoredCourse[] }>("/courses?mine=true", { token });
+          if (active) {
+            setProfile(response.user);
+            setAuthoredCourses(mineResponse.courses);
+          }
+        } else {
+          const courseResponse = await apiRequest<CoursesResponse>("/courses/enrolled", {
+            token
+          });
 
-        if (active) {
-          setProfile(response.user);
-          setCourses(courseResponse.courses.slice(0, 3));
-          setSummary(progressSummary.summary);
+          const progressSummary = await apiRequest<ProgressSummaryResponse>("/progress/summary", {
+            token
+          });
+
+          if (active) {
+            setProfile(response.user);
+            setCourses(courseResponse.courses.slice(0, 3));
+            setSummary(progressSummary.summary);
+          }
         }
       } catch (loadError) {
         if (active) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load profile");
+        }
+      } finally {
+        if (active) {
+          setIsLoading(false);
         }
       }
     }
@@ -99,6 +125,143 @@ export default function DashboardPage() {
 
   const roleLabel = profile?.role?.toLowerCase() ?? "workspace";
 
+  if (isLoading) {
+    return (
+      <ProtectedPage>
+        <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-[var(--ink)] flex items-center justify-center animate-pulse">
+            <span className="text-white font-mono text-xl font-bold">L</span>
+          </div>
+        </div>
+      </ProtectedPage>
+    );
+  }
+
+  if (profile?.role === "INSTRUCTOR" || profile?.role === "ADMIN") {
+    const totalStudents = authoredCourses.reduce((acc, c) => acc + (c.attendeesCount ?? 0), 0);
+    const totalCompleted = authoredCourses.reduce((acc, c) => acc + (c.completedCount ?? 0), 0);
+    const avgGraduation = totalStudents > 0 ? Math.round((totalCompleted / totalStudents) * 100) : 0;
+
+    return (
+      <ProtectedPage>
+        <div className="max-w-[1400px] mx-auto px-6 py-12 lg:px-12 lg:py-16">
+          <header className="flex justify-between items-center mb-16">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[var(--ink)] flex items-center justify-center">
+                <span className="text-white font-mono text-sm font-bold">L</span>
+              </div>
+              <span className="font-heading font-semibold text-xl tracking-tight">Learnova</span>
+            </div>
+            <nav className="flex items-center gap-8 font-mono text-sm">
+              <Link href="/dashboard" className="text-[var(--ink)] border-b border-[var(--ink)] pb-1">Dashboard</Link>
+              <Link href="/courses" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Explore</Link>
+              <Link href="/backoffice" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Instructor Lab</Link>
+            </nav>
+            <div className="flex items-center gap-4">
+              <div className="px-3 py-1.5 rounded-full bg-white/70 border border-[var(--edge)] font-mono text-xs flex items-center gap-2">
+                <Award className="w-3.5 h-3.5 text-[var(--accent-peach)]" />
+                <span>{roleLabel}</span>
+                <span className="text-[var(--ink-soft)] ml-2">{profile?.totalPoints ?? 0} pts</span>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-[#f2f0eb] overflow-hidden border border-[var(--edge)]">
+                <img
+                  src={`https://api.dicebear.com/7.x/notionists/svg?seed=${encodeURIComponent(profile?.fullName ?? "Instructor")}&backgroundColor=F8F7F4`}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <button onClick={onSignOut} className="floating-link">Sign out</button>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+            <div className="lg:col-span-8 flex flex-col gap-12">
+              <section>
+                <h1 className="font-heading text-5xl lg:text-7xl font-semibold leading-[1.1] text-[var(--ink)] mb-6">
+                  {`Morning, ${profile?.fullName}.`}
+                </h1>
+                <p className="font-mono text-sm text-[var(--ink-soft)] max-w-md leading-relaxed">
+                  Instructor console. Track your course performance, enrollments, and completion rates.
+                </p>
+              </section>
+
+              <section className="relative mt-8">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="font-heading text-2xl font-medium">Your Modules</h2>
+                  <Link href="/backoffice" className="font-mono text-xs text-[var(--ink)] hover:text-[var(--accent-blue)] transition-colors flex items-center gap-1">
+                    Manage <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
+                  {authoredCourses.length > 0 ? authoredCourses.slice(0, 4).map((course, index) => (
+                    <Link
+                      key={course.id}
+                      href={`/backoffice/courses/${course.id}`}
+                      className={`group bg-white p-6 rounded-2xl border border-[var(--edge)] hover:shadow-[0_20px_40px_-15px_rgba(26,28,41,0.05)] hover:-translate-y-1 transition-all duration-300 ${index % 2 === 0 ? "md:-translate-y-4" : ""}`}
+                    >
+                      <div className={`inline-block px-2 py-1 font-mono text-[10px] uppercase tracking-wider rounded mb-4 ${course.published ? "bg-[#f2f0eb] text-[var(--ink-soft)]" : "bg-[var(--accent-peach)]/20 text-[var(--ink)]"}`}>
+                        {course.published ? "Published" : "Draft"}
+                      </div>
+                      <h3 className="font-heading text-2xl font-medium mb-3 group-hover:text-[var(--accent-blue)] transition-colors">{course.title}</h3>
+                      <p className="text-[var(--ink-soft)] text-sm mb-8 line-clamp-2">{course.description ?? "No description"}</p>
+
+                      <div className="mt-auto border-t border-[var(--edge)]/40 pt-4 flex items-center justify-between font-mono text-xs text-[var(--ink-soft)]">
+                        <span>{course.attendeesCount ?? 0} Students</span>
+                        <span>{course.attendeesCount ? Math.round(((course.completedCount ?? 0) / course.attendeesCount) * 100) : 0}% Graduated</span>
+                      </div>
+                    </Link>
+                  )) : (
+                    <article className="bg-white p-6 rounded-2xl border border-[var(--edge)] md:col-span-2">
+                      <h3 className="font-heading text-2xl">No modules built yet</h3>
+                      <p className="text-[var(--ink-soft)] text-sm mt-2">Create your first course to start teaching.</p>
+                      <Link href="/backoffice" className="action-chip mt-4 inline-flex">Go to Lab</Link>
+                    </article>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div className="lg:col-span-4 lg:pl-8">
+              <div className="sticky top-12 flex flex-col gap-6">
+                <div className="bg-[var(--ink)] text-white p-8 rounded-3xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl" />
+                  <h3 className="font-mono text-xs opacity-70 mb-6 tracking-widest uppercase">Global Impact</h3>
+
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="font-heading text-5xl font-semibold">{totalStudents}</span>
+                    <span className="font-mono text-sm opacity-70">students</span>
+                  </div>
+                  <p className="text-sm opacity-80 leading-relaxed mb-8">
+                    Total completions across all modules: {totalCompleted}.
+                  </p>
+
+                  <div className="flex items-center gap-4 text-sm font-mono border-t border-white/10 pt-4">
+                    <div className="flex items-center justify-between w-full">
+                      <span className="opacity-70">Average completion rate</span>
+                      <span className="font-medium text-[var(--accent-peach)]">{avgGraduation}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-[var(--edge)] p-6 rounded-3xl">
+                  <h3 className="font-mono text-xs text-[var(--ink-soft)] mb-6 tracking-widest uppercase">Profile</h3>
+                  <ul className="flex flex-col gap-4 text-sm text-[var(--ink)]">
+                    <li className="border-b border-[var(--edge)]/60 pb-3">{profile.email}</li>
+                    <li className="border-b border-[var(--edge)]/60 pb-3 font-semibold">{profile.role}</li>
+                    <li>Member since {new Date(profile.createdAt).toLocaleDateString()}</li>
+                  </ul>
+                </div>
+
+                {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </ProtectedPage>
+    );
+  }
+
   return (
     <ProtectedPage>
       <div className="max-w-[1400px] mx-auto px-6 py-12 lg:px-12 lg:py-16">
@@ -112,9 +275,6 @@ export default function DashboardPage() {
           <nav className="flex items-center gap-8 font-mono text-sm">
             <Link href="/dashboard" className="text-[var(--ink)] border-b border-[var(--ink)] pb-1">Dashboard</Link>
             <Link href="/courses" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Explore</Link>
-            {(profile?.role === "ADMIN" || profile?.role === "INSTRUCTOR") ? (
-              <Link href="/backoffice" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Instructor Lab</Link>
-            ) : null}
           </nav>
           <div className="flex items-center gap-4">
             <div className="px-3 py-1.5 rounded-full bg-white/70 border border-[var(--edge)] font-mono text-xs flex items-center gap-2">

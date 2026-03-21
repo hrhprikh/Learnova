@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Menu } from "lucide-react";
+import YouTube, { YouTubeProps } from "react-youtube";
 import { ProtectedPage } from "@/components/protected-page";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
@@ -23,7 +24,7 @@ type LessonsResponse = {
   lessons: LessonItem[];
 };
 
-function getYouTubeEmbedUrl(url: string) {
+function getYouTubeVideoId(url: string) {
   let videoId = "";
   try {
     if (url.includes("youtube.com/watch")) {
@@ -31,12 +32,12 @@ function getYouTubeEmbedUrl(url: string) {
     } else if (url.includes("youtu.be/")) {
       videoId = new URL(url).pathname.slice(1);
     } else if (url.includes("youtube.com/embed/")) {
-      return url;
+      videoId = new URL(url).pathname.split("/").pop() || "";
     }
   } catch {
     return null;
   }
-  return videoId ? `https://www.youtube.com/embed/${videoId}` : null;
+  return videoId || null;
 }
 
 export default function LessonPlayerPage({ params }: { params: { courseId: string; lessonId: string } }) {
@@ -89,6 +90,10 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
     await apiRequest(`/lessons/${current.id}/complete`, { method: "POST", token });
   }
 
+  const onPlayerEnd: YouTubeProps['onEnd'] = async () => {
+    await markComplete();
+  };
+
   const progressPercent = lessons.length ? Math.round(((currentIndex + 1) / lessons.length) * 100) : 0;
 
   return (
@@ -137,7 +142,7 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
             </aside>
           ) : null}
 
-          <div className="w-full max-w-4xl py-12 px-6 lg:py-24 lg:px-16">
+          <div className="w-full max-w-4xl py-12 px-6 lg:py-24 lg:px-16 pb-40 lg:pb-48">
             <div className="mb-12">
               <span className="font-mono text-sm text-[var(--accent-peach)] mb-4 block">Lesson {String(Math.max(currentIndex + 1, 1)).padStart(2, "0")}</span>
               <h1 className="font-heading text-4xl lg:text-5xl font-semibold text-[var(--ink)] leading-tight">{current?.title ?? "Loading lesson..."}</h1>
@@ -151,15 +156,28 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
               {current?.type === "VIDEO" && current.videoUrl ? (
                 <div className="space-y-3 mb-8">
                   <h2 className="text-xl font-semibold mb-4">Video Lesson</h2>
-                  {getYouTubeEmbedUrl(current.videoUrl) ? (
-                    <div className="relative w-full aspect-video rounded-xl overflow-hidden shadow-lg border border-[var(--edge)] bg-black">
-                      <iframe
-                        src={getYouTubeEmbedUrl(current.videoUrl)!}
-                        className="absolute inset-0 w-full h-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowFullScreen
-                        title="Course Video"
-                      />
+                  {getYouTubeVideoId(current.videoUrl) ? (
+                    <div className="w-full rounded-2xl lg:rounded-[2rem] p-2 bg-[#f2f0eb] border border-[var(--edge)] shadow-inner mb-4 relative z-10 transition-transform">
+                      <div className="relative w-full aspect-video rounded-xl lg:rounded-2xl overflow-hidden bg-[var(--ink)] shadow-[0_20px_50px_-15px_rgba(0,0,0,0.4)] border border-[var(--ink)]">
+                        <YouTube
+                          videoId={getYouTubeVideoId(current.videoUrl)!}
+                          opts={{
+                            width: '100%',
+                            height: '100%',
+                            playerVars: {
+                              autoplay: 0,
+                              rel: 0,
+                              modestbranding: 1,
+                              color: 'white',
+                              iv_load_policy: 3,
+                              controls: 1
+                            }
+                          }}
+                          onEnd={onPlayerEnd}
+                          className="absolute inset-0 w-full h-full"
+                          iframeClassName="w-full h-full"
+                        />
+                      </div>
                     </div>
                   ) : (
                     <a href={current.videoUrl} target="_blank" rel="noreferrer" className="floating-link inline-flex">Open video source</a>

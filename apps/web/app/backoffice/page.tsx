@@ -22,6 +22,8 @@ type CourseItem = {
   description: string | null;
   published: boolean;
   tags: Array<{ id: string; tag: string }>;
+  attendeesCount?: number;
+  completedCount?: number;
 };
 
 type CoursesResponse = {
@@ -196,6 +198,10 @@ export default function BackofficePage() {
                           <span key={tag.id} className="mono-tag">{tag.tag}</span>
                         ))}
                       </div>
+                      <div className="mt-4 flex flex-wrap gap-4 font-mono text-xs text-[var(--ink-soft)] border-t border-[var(--edge)]/40 pt-3">
+                        <span title="Total Enrolled Students">{course.attendeesCount ?? 0} Enrolled</span>
+                        <span title="Graduation Rate">{course.attendeesCount ? Math.round(((course.completedCount ?? 0) / course.attendeesCount) * 100) : 0}% Finished</span>
+                      </div>
                       <div className="mt-4 flex items-center gap-2">
                         <Link href={`/backoffice/courses/${course.id}`} className="floating-link inline-flex">Open</Link>
                         <button onClick={() => togglePublish(course.id, true)} className="floating-link">Publish</button>
@@ -214,6 +220,10 @@ export default function BackofficePage() {
                         {course.tags.map((tag) => (
                           <span key={tag.id} className="mono-tag">{tag.tag}</span>
                         ))}
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-4 font-mono text-xs text-[var(--ink-soft)] border-t border-[var(--edge)]/40 pt-3">
+                        <span title="Total Enrolled Students">{course.attendeesCount ?? 0} Enrolled</span>
+                        <span title="Graduation Rate">{course.attendeesCount ? Math.round(((course.completedCount ?? 0) / course.attendeesCount) * 100) : 0}% Finished</span>
                       </div>
                       <div className="mt-4 flex items-center gap-2">
                         <Link href={`/backoffice/courses/${course.id}`} className="floating-link inline-flex">Open</Link>

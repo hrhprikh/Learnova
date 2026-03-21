@@ -220,11 +220,11 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
     const where: Record<string, unknown> = {
       ...(search
         ? {
-            title: {
-              contains: search,
-              mode: "insensitive"
-            }
+          title: {
+            contains: search,
+            mode: "insensitive"
           }
+        }
         : {})
     };
 
@@ -246,18 +246,29 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
         },
         lessons: {
           select: { durationSeconds: true }
+        },
+        _count: {
+          select: {
+            attendees: true,
+            progress: {
+              where: { status: "COMPLETED" }
+            }
+          }
         }
       }
     });
 
     return res.status(200).json({
-      courses: courses.map((course: (typeof courses)[number]) => ({
+      // @ts-ignore
+      courses: courses.map((course: any) => ({
         ...course,
         lessonCount: course.lessons.length,
         durationSeconds: course.lessons.reduce(
           (acc: number, lesson: { durationSeconds: number }) => acc + lesson.durationSeconds,
           0
-        )
+        ),
+        attendeesCount: course._count?.attendees ?? 0,
+        completedCount: course._count?.progress ?? 0
       }))
     });
   } catch (error) {
@@ -456,11 +467,11 @@ coursesRouter.get("/courses/:courseId/reviews", async (req, res, next) => {
       reviews.length === 0
         ? 0
         : Number(
-            (
-              reviews.reduce((acc: number, item: (typeof reviews)[number]) => acc + item.rating, 0) /
-              reviews.length
-            ).toFixed(1)
-          );
+          (
+            reviews.reduce((acc: number, item: (typeof reviews)[number]) => acc + item.rating, 0) /
+            reviews.length
+          ).toFixed(1)
+        );
 
     return res.status(200).json({
       averageRating,
@@ -567,11 +578,11 @@ coursesRouter.patch(
             : {}),
           ...(payload.tags
             ? {
-                tags: {
-                  deleteMany: {},
-                  create: payload.tags.map((tag) => ({ tag }))
-                }
+              tags: {
+                deleteMany: {},
+                create: payload.tags.map((tag) => ({ tag }))
               }
+            }
             : {})
         },
         include: {

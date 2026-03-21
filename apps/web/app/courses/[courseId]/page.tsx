@@ -246,8 +246,11 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                   return (
                     <li
                       key={lesson.id}
-                      className={`relative pl-10 py-5 border-b border-[var(--edge)]/40 last:border-0 group ${isCurrent ? "bg-[#f2f0eb] -mx-4 px-4 pr-0 rounded-lg" : ""} ${isLocked ? "opacity-60" : ""}`}
+                      className={`relative pl-10 py-5 border-b border-[var(--edge)]/40 last:border-0 group ${isCurrent ? "bg-[#f2f0eb] -mx-4 px-4 pr-0 rounded-lg" : ""} ${isLocked ? "opacity-60" : "hover:bg-white transition-colors cursor-pointer"}`}
                     >
+                      {!isLocked ? (
+                        <Link href={`/learn/${params.courseId}/${lesson.id}`} className="absolute inset-0 z-20" aria-label={`Open ${lesson.title}`} />
+                      ) : null}
                       <div className={`absolute left-2.5 top-6 rounded-full ring-4 -translate-x-1/2 z-10 ${isCompleted ? "w-2.5 h-2.5 bg-[var(--ink)] ring-white" : isCurrent ? "w-3 h-3 bg-[var(--accent-peach)] ring-[#f2f0eb]" : "w-2 h-2 border border-[var(--ink-soft)] bg-white ring-white"}`} />
                       <div className={`${isCurrent ? "pl-6" : ""}`}>
                         <div className="flex items-start justify-between gap-4">
@@ -255,7 +258,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                             <span className={`font-mono text-[10px] tracking-wider block mb-1 ${isCurrent ? "text-[var(--accent-peach)]" : "text-[var(--ink-soft)]"}`}>
                               SECTION {String(index + 1).padStart(2, "0")}{isCurrent ? " (Current)" : ""}
                             </span>
-                            <h4 className={`font-medium ${isLocked ? "text-[var(--ink-soft)]" : "text-[var(--ink)] group-hover:text-[var(--accent-blue)] transition-colors"}`}>{lesson.title}</h4>
+                            <h4 className={`font-medium relative z-10 ${isLocked ? "text-[var(--ink-soft)]" : "text-[var(--ink)] group-hover:text-[var(--accent-blue)] transition-colors"}`}>{lesson.title}</h4>
                           </div>
                           {isCompleted ? (
                             <CheckCircle2 className="w-5 h-5 text-[var(--accent-blue)] opacity-80" />
@@ -266,7 +269,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                           ) : null}
                         </div>
                         {!isLocked ? (
-                          <Link href={`/learn/${params.courseId}/${lesson.id}`} className="floating-link mt-3 inline-flex">Open lesson</Link>
+                          <span className="floating-link mt-3 inline-flex relative z-10 opacity-70 group-hover:opacity-100 transition-opacity">Open lesson</span>
                         ) : null}
                       </div>
                     </li>

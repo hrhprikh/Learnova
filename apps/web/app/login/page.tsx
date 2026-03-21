@@ -132,7 +132,7 @@ export default function LoginPage() {
             />
           </label>
           <p className="body-copy text-xs">
-            Learners and instructors can sign up directly. Admin accounts are provisioned separately.
+            Learners and instructors can sign up directly.
           </p>
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <button type="submit" disabled={isSubmitting} className="action-chip w-full">
