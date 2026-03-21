@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth, tryAttachUser } from "../middleware/auth.middleware.js";
 import { requireRole } from "../middleware/rbac.middleware.js";
+import { createNotification } from "../lib/notifications.js";
 
 const visibilityValues = ["EVERYONE", "SIGNED_IN"] as const;
 const accessRuleValues = ["OPEN", "INVITATION", "PAYMENT"] as const;
@@ -81,6 +82,28 @@ async function enrollLearnerInCourse(courseId: string, userId: string) {
     }
   });
 
+  // Notify instructor
+  try {
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      include: { createdBy: true }
+    });
+    const learner = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+    if (course && learner) {
+      await createNotification(
+        course.createdById,
+        "New Enrollment",
+        `${learner.fullName} has joined your course: ${course.title}`,
+        "ENROLLMENT",
+        `/backoffice/reporting?courseId=${courseId}`
+      );
+    }
+  } catch (err) {
+    console.error("Failed to notify instructor about enrollment:", err);
+  }
+
   return { attendee };
 }
 
@@ -108,6 +131,102 @@ async function assertCanMutateCourse(courseId: string, userId: string, role: App
 }
 
 export const coursesRouter = Router();
+
+// ─── Attendees Management ───────────────────────────────────────────
+coursesRouter.get(
+  "/courses/:courseId/attendees",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const attendees = await prisma.courseAttendee.findMany({
+        where: { courseId },
+        include: {
+          user: { select: { id: true, fullName: true, email: true } }
+        },
+        orderBy: { enrolledAt: "desc" }
+      });
+
+      return res.status(200).json({
+        attendees: attendees.map((a: (typeof attendees)[number]) => ({
+          id: a.id,
+          userId: a.user.id,
+          fullName: a.user.fullName,
+          email: a.user.email,
+          enrolledAt: a.enrolledAt
+        }))
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.post(
+  "/courses/:courseId/attendees",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const { email } = z.object({ email: z.string().email() }).parse(req.body);
+
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      if (!user) {
+        return res.status(404).json({ message: "No user found with that email" });
+      }
+
+      const result = await enrollLearnerInCourse(courseId, user.id);
+      if (result.error) {
+        return res.status(result.error.status).json({ message: result.error.message });
+      }
+
+      return res.status(200).json({ message: "User added successfully" });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.delete(
+  "/courses/:courseId/attendees/:userId",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const userId = z.string().min(1).parse(req.params.userId);
+
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      await prisma.courseAttendee.deleteMany({
+        where: { courseId, userId }
+      });
+
+      await prisma.courseProgress.deleteMany({
+        where: { courseId, userId }
+      });
+
+      return res.status(200).json({ message: "Attendee removed" });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
 
 coursesRouter.get("/courses/enrolled", requireAuth, async (req, res, next) => {
   try {
@@ -217,19 +336,29 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
       }
     }
 
-    const where: Record<string, unknown> = {
-      ...(search
-        ? {
+    const where: Record<string, any> = {
+      OR: [
+        {
           title: {
             contains: search,
             mode: "insensitive"
           }
+        },
+        {
+          createdBy: {
+            fullName: {
+              contains: search,
+              mode: "insensitive"
+            }
+          }
         }
-        : {})
+      ]
     };
 
     if (mine && user) {
       if (user.role !== "ADMIN") {
+        delete where.OR;
+        where.title = { contains: search, mode: "insensitive" };
         where.createdById = user.id;
       }
     } else {
@@ -241,6 +370,9 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
       where,
       orderBy: [{ updatedAt: "desc" }],
       include: {
+        createdBy: {
+          select: { id: true, fullName: true }
+        },
         tags: {
           select: { id: true, tag: true }
         },
@@ -259,8 +391,9 @@ coursesRouter.get("/courses", tryAttachUser, async (req, res, next) => {
     });
 
     return res.status(200).json({
-      courses: courses.map((course: (typeof courses)[number]) => ({
+      courses: courses.map((course: any) => ({
         ...course,
+        instructorName: course.createdBy?.fullName || "Instructor",
         lessonCount: course.lessons.length,
         durationSeconds: course.lessons.reduce(
           (acc: number, lesson: { durationSeconds: number }) => acc + lesson.durationSeconds,
@@ -325,7 +458,14 @@ coursesRouter.post("/courses/:courseId/enroll", requireAuth, async (req, res, ne
     }
 
     if (course.accessRule === "PAYMENT") {
-      return res.status(402).json({ message: "This course requires payment" });
+      const { paymentToken } = req.body;
+      if (!paymentToken) {
+        return res.status(402).json({ message: "This course requires payment" });
+      }
+      // Mock payment validation logic
+      if (paymentToken !== "mock_success_token") {
+        return res.status(400).json({ message: "Invalid payment token" });
+      }
     }
 
     const result = await enrollLearnerInCourse(courseId, req.user!.id);
@@ -339,12 +479,59 @@ coursesRouter.post("/courses/:courseId/enroll", requireAuth, async (req, res, ne
   }
 });
 
+coursesRouter.post("/courses/:courseId/complete", requireAuth, async (req, res, next) => {
+  try {
+    const courseId = courseIdSchema.parse(req.params.courseId);
+    
+    const attendee = await prisma.courseAttendee.findUnique({
+      where: {
+        userId_courseId: {
+          userId: req.user!.id,
+          courseId
+        }
+      }
+    });
+
+    if (!attendee) {
+      return res.status(403).json({ message: "You are not enrolled in this course" });
+    }
+
+    const progress = await prisma.courseProgress.upsert({
+      where: {
+        userId_courseId: {
+          userId: req.user!.id,
+          courseId
+        }
+      },
+      update: {
+        status: "COMPLETED",
+        completedAt: new Date(),
+        completionPercent: 100
+      },
+      create: {
+        userId: req.user!.id,
+        courseId,
+        status: "COMPLETED",
+        completedAt: new Date(),
+        completionPercent: 100
+      }
+    });
+
+    return res.status(200).json({ progress });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) => {
   try {
     const courseId = courseIdSchema.parse(req.params.courseId);
 
-    const course = await prisma.course.findUnique({
+    const course = await prisma.course.update({
       where: { id: courseId },
+      data: {
+        viewsCount: { increment: 1 }
+      },
       include: {
         tags: {
           select: { id: true, tag: true }
@@ -378,10 +565,19 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
     let progress = {
       totalLessons: course.lessons.length,
       completedLessons: 0,
-      completionPercent: 0
+      completionPercent: 0,
+      status: "YET_TO_START" as "YET_TO_START" | "IN_PROGRESS" | "COMPLETED"
     };
 
     if (user) {
+      let status: "YET_TO_START" | "IN_PROGRESS" | "COMPLETED" = "YET_TO_START";
+      const courseProgress = await prisma.courseProgress.findUnique({
+        where: { userId_courseId: { userId: user.id, courseId } }
+      });
+      if (courseProgress) {
+        status = courseProgress.status;
+      }
+
       const completedLessons = await prisma.lessonProgress.count({
         where: {
           userId: user.id,
@@ -393,11 +589,12 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
         totalLessons: course.lessons.length,
         completedLessons,
         completionPercent:
-          course.lessons.length === 0 ? 0 : Math.round((completedLessons / course.lessons.length) * 100)
+          course.lessons.length === 0 ? 0 : Math.round((completedLessons / course.lessons.length) * 100),
+        status
       };
     }
 
-    return res.status(200).json({ course, progress });
+    return res.status(200).json({ course, progress, isOwner });
   } catch (error) {
     return next(error);
   }
@@ -640,6 +837,86 @@ coursesRouter.post(
       });
 
       return res.status(200).json({ course });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.post("/courses/:courseId/message", requireAuth, async (req, res, next) => {
+  try {
+    const courseId = courseIdSchema.parse(req.params.courseId);
+    const { subject, body } = z.object({
+      subject: z.string().min(1),
+      body: z.string().min(1)
+    }).parse(req.body);
+
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      select: { title: true, createdById: true }
+    });
+
+    if (!course) {
+      return res.status(404).json({ message: "Course not found" });
+    }
+
+    await createNotification(
+      course.createdById,
+      `Student Inquiry: ${subject}`,
+      `A student messaged you about ${course.title}: ${body}`,
+      "MESSAGE",
+      `/backoffice`
+    );
+
+    return res.status(200).json({ message: "Message sent to instructor" });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+coursesRouter.post(
+  "/courses/:courseId/contact",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const { subject, body } = z.object({
+        subject: z.string().min(1),
+        body: z.string().min(1)
+      }).parse(req.body);
+
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const course = await prisma.course.findUnique({
+        where: { id: courseId },
+        select: { title: true }
+      });
+
+      const attendees = await prisma.courseAttendee.findMany({
+        where: { courseId },
+        select: { userId: true }
+      });
+
+      // Broadcast notifications
+      const notifyPromises = attendees.map(att => 
+        createNotification(
+          att.userId,
+          `Course Update: ${subject}`,
+          `Instructor message for ${course?.title || 'your course'}: ${body}`,
+          "COURSE_UPDATE",
+          `/courses/${courseId}`
+        )
+      );
+      await Promise.all(notifyPromises);
+
+      return res.status(200).json({ 
+        message: `Message sent to ${attendees.length} attendees`,
+        count: attendees.length 
+      });
     } catch (error) {
       return next(error);
     }

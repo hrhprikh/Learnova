@@ -98,10 +98,10 @@ lessonsRouter.get("/lessons/:lessonId", requireAuth, async (req, res, next) => {
       include: {
         attachments: true,
         quiz: {
-          select: {
-            id: true,
-            title: true
-          }
+          select: { id: true, title: true }
+        },
+        responsibleUser: {
+          select: { id: true, fullName: true }
         }
       }
     });
@@ -141,6 +141,9 @@ lessonsRouter.get("/courses/:courseId/lessons", requireAuth, async (req, res, ne
         attachments: true,
         quiz: {
           select: { id: true, title: true }
+        },
+        responsibleUser: {
+          select: { id: true, fullName: true }
         }
       }
     });

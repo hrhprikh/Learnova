@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Menu } from "lucide-react";
+import { Menu, ChevronLeft, ChevronRight, CheckCircle2, Lock, PlayCircle, FileText, ImageIcon, HelpCircle, X, Download, ExternalLink, Mail, CheckCircle, Save } from "lucide-react";
 import YouTube, { YouTubeProps } from "react-youtube";
 import { ProtectedPage } from "@/components/protected-page";
+import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
 
@@ -18,6 +19,7 @@ type LessonItem = {
   attachments: Array<{ id: string; label: string; kind: "FILE" | "LINK"; fileUrl: string | null; externalUrl: string | null }>;
   quiz: { id: string; title: string } | null;
   learnerStatus: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED";
+  responsibleUser: { id: string; fullName: string } | null;
 };
 
 type LessonsResponse = {
@@ -41,7 +43,7 @@ function getYouTubeVideoId(url: string) {
 }
 
 export default function LessonPlayerPage({ params }: { params: { courseId: string; lessonId: string } }) {
-  const [showOverlay, setShowOverlay] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [lessons, setLessons] = useState<LessonItem[]>([]);
   const [token, setToken] = useState<string | null>(null);
 
@@ -51,9 +53,8 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
     async function load() {
       const { data } = await getCurrentSession();
       const accessToken = data.session?.access_token;
-      if (!accessToken) {
-        return;
-      }
+      if (!accessToken) return;
+      
       const response = await apiRequest<LessonsResponse>(`/courses/${params.courseId}/lessons`, { token: accessToken });
       if (active) {
         setLessons(response.lessons);
@@ -62,17 +63,13 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
     }
 
     load().catch(() => {
-      if (active) {
-        setLessons([]);
-      }
+      if (active) setLessons([]);
     });
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [params.courseId]);
 
-  const currentIndex = useMemo(() => lessons.findIndex((lesson) => lesson.id === params.lessonId), [lessons, params.lessonId]);
+  const currentIndex = useMemo(() => lessons.findIndex((m) => m.id === params.lessonId), [lessons, params.lessonId]);
   const current = currentIndex >= 0 ? lessons[currentIndex] : null;
   const previous = currentIndex > 0 ? lessons[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < lessons.length - 1 ? lessons[currentIndex + 1] : null;
@@ -87,165 +84,198 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
 
   async function markComplete() {
     if (!token || !current) return;
-    await apiRequest(`/lessons/${current.id}/complete`, { method: "POST", token });
+    try {
+      await apiRequest(`/lessons/${current.id}/complete`, { method: "POST", token });
+      setLessons(prev => prev.map(l => l.id === current.id ? { ...l, learnerStatus: "COMPLETED" } : l));
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   const onPlayerEnd: YouTubeProps['onEnd'] = async () => {
     await markComplete();
   };
 
-  const progressPercent = lessons.length ? Math.round(((currentIndex + 1) / lessons.length) * 100) : 0;
+  const progressPercent = lessons.length ? Math.round((lessons.filter(l => l.learnerStatus === "COMPLETED").length / lessons.length) * 100) : 0;
 
   return (
     <ProtectedPage>
-      <div className="h-screen bg-white flex flex-col overflow-hidden">
-        <header className="h-16 flex items-center justify-between px-6 border-b border-[var(--edge)] bg-white z-20">
-          <div className="flex items-center gap-4">
-            <Link href={`/courses/${params.courseId}`} className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">
-              <ChevronLeft className="w-5 h-5" />
-            </Link>
-            <div className="h-4 w-px bg-[var(--edge)]" />
-            <p className="font-mono text-xs uppercase tracking-widest text-[var(--ink-soft)] truncate max-w-[260px]">{current?.title ?? "Lesson"}</p>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <div className="hidden md:flex items-center gap-2 font-mono text-xs">
-              <span className="text-[var(--ink-soft)]">Progress</span>
-              <div className="w-24 h-1.5 bg-[#f2f0eb] rounded-full overflow-hidden">
-                <div className="h-full bg-[var(--accent-blue)]" style={{ width: `${progressPercent}%` }} />
+      <div className="h-screen bg-white flex overflow-hidden font-sans text-[var(--ink)]">
+        {/* Sidebar */}
+        <aside 
+          className={`fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-[var(--edge)] transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:block"}`}
+        >
+          <div className="flex flex-col h-full">
+            <header className="h-16 flex items-center px-6 border-b border-[var(--edge)] shrink-0">
+              <Link href={`/courses/${params.courseId}`} className="flex items-center gap-2 group">
+                <ChevronLeft className="w-4 h-4 text-[var(--ink-soft)]" />
+                <span className="font-mono text-[10px] uppercase tracking-widest font-semibold">Course Home</span>
+              </Link>
+            </header>
+            
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              <div className="mb-6 px-2">
+                <p className="font-mono text-[9px] uppercase tracking-tighter text-[var(--ink-soft)] mb-2">Module Progress</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-[var(--ink)] transition-all duration-500" style={{ width: `${progressPercent}%` }} />
+                  </div>
+                  <span className="font-mono text-[10px]">{progressPercent}%</span>
+                </div>
               </div>
-              <span className="ml-1">{progressPercent}%</span>
-            </div>
-            <button className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded bg-[#f2f0eb] hover:bg-[#e9e6df] transition-colors group" onClick={() => setShowOverlay((v) => !v)}>
-              <Menu className="w-4 h-4 text-[var(--ink-soft)] group-hover:text-[var(--ink)]" />
-              <span>Index</span>
-            </button>
-          </div>
-        </header>
 
-        <main className="flex-1 overflow-y-auto relative flex justify-center bg-[#FCFBFA]">
-          {showOverlay ? (
-            <aside className="fixed top-20 right-6 z-30 w-[320px] max-w-[85vw] rounded-2xl border border-[var(--edge)] bg-white p-4 shadow-2xl">
-              <p className="mono-note">course index</p>
-              <ul className="mt-4 space-y-2 max-h-[60vh] overflow-y-auto">
-                {lessons.map((lesson) => (
-                  <li key={lesson.id}>
-                    <Link
-                      href={`/learn/${params.courseId}/${lesson.id}`}
-                      className={`block rounded-lg px-3 py-2 text-sm ${lesson.id === current?.id ? "bg-[#f2f0eb] text-[var(--ink)]" : "text-[var(--ink-soft)] hover:bg-[#f7f5f0]"}`}
-                    >
-                      {lesson.title}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </aside>
-          ) : null}
-
-          <div className="w-full max-w-4xl py-12 px-6 lg:py-24 lg:px-16 pb-40 lg:pb-48">
-            <div className="mb-12">
-              <span className="font-mono text-sm text-[var(--accent-peach)] mb-4 block">Lesson {String(Math.max(currentIndex + 1, 1)).padStart(2, "0")}</span>
-              <h1 className="font-heading text-4xl lg:text-5xl font-semibold text-[var(--ink)] leading-tight">{current?.title ?? "Loading lesson..."}</h1>
-            </div>
-
-            <div className="prose prose-lg prose-headings:font-heading prose-headings:font-medium prose-p:text-[var(--ink)]/80 prose-p:leading-relaxed mx-auto">
-              <p>{current?.description ?? "Keep distractions low and focus on one lesson at a time."}</p>
-            </div>
-
-            <article className="mt-10 bg-white border border-[var(--edge)] rounded-2xl p-6">
-              {current?.type === "VIDEO" && current.videoUrl ? (
-                <div className="space-y-3 mb-8">
-                  <h2 className="text-xl font-semibold mb-4">Video Lesson</h2>
-                  {getYouTubeVideoId(current.videoUrl) ? (
-                    <div className="w-full rounded-2xl lg:rounded-[2rem] p-2 bg-[#f2f0eb] border border-[var(--edge)] shadow-inner mb-4 relative z-10 transition-transform">
-                      <div className="relative w-full aspect-video rounded-xl lg:rounded-2xl overflow-hidden bg-[var(--ink)] shadow-[0_20px_50px_-15px_rgba(0,0,0,0.4)] border border-[var(--ink)]">
-                        <YouTube
-                          videoId={getYouTubeVideoId(current.videoUrl)!}
-                          opts={{
-                            width: '100%',
-                            height: '100%',
-                            playerVars: {
-                              autoplay: 0,
-                              rel: 0,
-                              modestbranding: 1,
-                              color: 'white',
-                              iv_load_policy: 3,
-                              controls: 1
-                            }
-                          }}
-                          onEnd={onPlayerEnd}
-                          className="absolute inset-0 w-full h-full"
-                          iframeClassName="w-full h-full"
-                        />
-                      </div>
+              <nav className="space-y-1">
+                {lessons.map((lesson, idx) => (
+                  <Link
+                    key={lesson.id}
+                    href={`/learn/${params.courseId}/${lesson.id}`}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all ${lesson.id === params.lessonId ? "bg-[var(--ink)] text-white shadow-lg" : "text-[var(--ink-soft)] hover:bg-gray-50"}`}
+                  >
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center border font-mono text-[9px] ${lesson.id === params.lessonId ? "border-white/30 bg-white/10" : "border-[var(--edge)] bg-white"}`}>
+                      {lesson.learnerStatus === "COMPLETED" ? <CheckCircle2 className="w-3 h-3" /> : idx + 1}
                     </div>
-                  ) : (
-                    <a href={current.videoUrl} target="_blank" rel="noreferrer" className="floating-link inline-flex">Open video source</a>
-                  )}
-                </div>
-              ) : null}
-
-              {current?.type === "DOCUMENT" && current.fileUrl ? (
-                <div className="space-y-3">
-                  <h2 className="text-xl font-semibold">Document Lesson</h2>
-                  <a href={current.fileUrl} target="_blank" rel="noreferrer" className="floating-link inline-flex">Open document</a>
-                </div>
-              ) : null}
-
-              {current?.type === "IMAGE" && current.fileUrl ? (
-                <div className="space-y-3">
-                  <h2 className="text-xl font-semibold">Image Lesson</h2>
-                  <a href={current.fileUrl} target="_blank" rel="noreferrer" className="floating-link inline-flex">Open image resource</a>
-                </div>
-              ) : null}
-
-              {current?.type === "QUIZ" && current.quiz ? (
-                <div className="space-y-3">
-                  <h2 className="text-xl font-semibold">Quiz Lesson</h2>
-                  <Link href={`/quiz/${current.quiz.id}`} className="action-chip inline-flex">Start quiz</Link>
-                </div>
-              ) : null}
-
-              {current?.attachments?.length ? (
-                <div className="mt-5 space-y-2">
-                  <p className="mono-note">attachments</p>
-                  {current.attachments.map((attachment) => (
-                    <a
-                      key={attachment.id}
-                      href={attachment.externalUrl ?? attachment.fileUrl ?? "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="floating-link inline-flex mr-2"
-                    >
-                      {attachment.label}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-            </article>
+                    <span className="flex-1 truncate font-medium">{lesson.title}</span>
+                  </Link>
+                ))}
+              </nav>
+            </div>
           </div>
-        </main>
+        </aside>
 
-        <footer className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-lg border border-[var(--edge)] px-4 py-3 rounded-full shadow-2xl flex items-center gap-4 z-20">
-          <Link href={previous ? `/learn/${params.courseId}/${previous.id}` : "#"} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${previous ? "text-[var(--ink-soft)] hover:bg-[#f2f0eb]" : "text-[var(--edge)] pointer-events-none"}`}>
-            <ChevronLeft className="w-5 h-5" />
-          </Link>
-          <div className="px-2">
-            <button
-              onClick={async () => {
-                await markComplete();
-              }}
-              className="bg-[var(--ink)] text-white text-sm font-medium px-6 py-2.5 rounded-full hover:bg-[#2a2d43] transition-all flex items-center gap-2"
-            >
-              <Check className="w-4 h-4" />
-              Mark Complete
+        {/* Main Area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-[#FCFBFA] relative">
+          <header className="h-16 flex items-center justify-between px-6 border-b border-[var(--edge)] bg-white/80 backdrop-blur-md sticky top-0 z-30 shrink-0">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="p-2 rounded-xl hover:bg-gray-100 transition-colors lg:flex"
+              >
+                <Menu className="w-5 h-5 text-[var(--ink-soft)]" />
+              </button>
+              <div className="h-4 w-px bg-[var(--edge)] hidden sm:block" />
+              <div className="hidden sm:block">
+                <p className="font-mono text-[9px] uppercase tracking-widest text-[var(--ink-soft)] mb-0.5">Currently Learning</p>
+                <h2 className="text-xs font-semibold truncate max-w-[200px] lg:max-w-md">{current?.title}</h2>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <NotificationBell />
+              <Link
+                href={`/courses/${params.courseId}`}
+                className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-[var(--ink-soft)]"
+              >
+                <X className="w-5 h-5" />
+              </Link>
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-y-auto">
+            <div className="max-w-4xl mx-auto px-6 py-12 lg:py-16">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
+               <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-4">
+                     <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 font-mono text-[10px] uppercase tracking-widest font-bold border border-blue-100">{current?.type}</span>
+                     {current?.responsibleUser && (
+                        <span className="font-mono text-[10px] text-[var(--ink-soft)] uppercase tracking-widest flex items-center gap-1.5">
+                           <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                           Expert: {current.responsibleUser.fullName}
+                        </span>
+                     )}
+                  </div>
+                  <h1 className="font-heading text-4xl lg:text-5xl font-semibold tracking-tight text-[var(--ink)] leading-[1.1]">{current?.title}</h1>
+               </div>
+               
+               {current?.description && (
+                  <p className="mt-6 text-lg text-[var(--ink-soft)] leading-relaxed font-serif max-w-2xl">
+                    {current.description}
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-[2.5rem] border border-[var(--edge)] shadow-sm overflow-hidden min-h-[400px]">
+                {current?.type === "VIDEO" && current.videoUrl && (
+                  <div className="p-4 bg-[#f2f0eb]">
+                    <div className="relative w-full aspect-video rounded-[1.5rem] overflow-hidden bg-[var(--ink)] shadow-2xl">
+                      <YouTube
+                        videoId={getYouTubeVideoId(current.videoUrl) || ""}
+                        opts={{ width: '100%', height: '100%', playerVars: { autoplay: 0, rel: 0, modestbranding: 1, color: 'white' } }}
+                        onEnd={onPlayerEnd}
+                        className="absolute inset-0 w-full h-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {current?.type === "IMAGE" && current.fileUrl && (
+                  <div className="p-4 flex items-center justify-center bg-[#f2f0eb]">
+                    <div className="relative rounded-[1.5rem] overflow-hidden shadow-2xl max-h-[80vh]">
+                      <img src={current.fileUrl} alt={current.title} className="max-w-full h-auto object-contain" />
+                    </div>
+                  </div>
+                )}
+
+                {current?.type === "DOCUMENT" && current.fileUrl && (
+                  <div className="h-[70vh] flex flex-col bg-white">
+                    <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--edge)] bg-gray-50/50">
+                      <span className="font-mono text-[10px] text-[var(--ink-soft)]">Document Viewer</span>
+                      <a href={current.fileUrl} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-blue-600 flex items-center gap-1 hover:underline">
+                        Open in New Tab <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    </div>
+                    <iframe src={current.fileUrl} className="flex-1 w-full border-0" title="Document Preview" />
+                  </div>
+                )}
+
+                {current?.type === "QUIZ" && current.quiz && (
+                  <div className="p-12 text-center flex flex-col items-center justify-center min-h-[500px]">
+                    <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-6">
+                      <HelpCircle className="w-8 h-8 text-blue-600" />
+                    </div>
+                    <h3 className="text-2xl font-semibold mb-2">Knowledge Check</h3>
+                    <p className="text-[var(--ink-soft)] mb-8 max-w-sm">This lesson requires completing a quiz to proceed.</p>
+                    <Link href={`/quiz/${current.quiz.id}`} className="action-chip px-12 py-4 text-base">Start Quiz</Link>
+                  </div>
+                )}
+              </div>
+
+              {current?.attachments && current.attachments.length > 0 && (
+                <div className="mt-12 p-8 rounded-3xl border border-[var(--edge)] bg-white">
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)] mb-4">Resources</p>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {current.attachments.map(att => (
+                      <a key={att.id} href={att.kind === "LINK" ? att.externalUrl! : att.fileUrl!} target="_blank" rel="noreferrer" className="flex items-center gap-3 p-4 rounded-2xl border border-[var(--edge)] hover:bg-gray-50 transition-all group">
+                        <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center border border-[var(--edge)] group-hover:bg-white transition-colors text-[var(--ink-soft)]">
+                          {att.kind === "LINK" ? <ExternalLink className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                          <p className="text-sm font-semibold truncate">{att.label}</p>
+                          <p className="text-[10px] font-mono text-[var(--ink-soft)] uppercase">{att.kind}</p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </main>
+
+          <footer className="h-20 bg-white border-t border-[var(--edge)] flex items-center justify-between px-6 lg:px-12 sticky bottom-0 z-30 shrink-0">
+            <Link href={previous ? `/learn/${params.courseId}/${previous.id}` : "#"} className={`flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl transition-all ${previous ? "hover:bg-gray-50 text-[var(--ink)]" : "opacity-30 pointer-events-none"}`}>
+              <ChevronLeft className="w-4 h-4" /> Previous
+            </Link>
+
+            <button onClick={markComplete} className="bg-[var(--ink)] text-white text-xs font-bold px-8 py-3 rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl disabled:opacity-50">
+              {current?.learnerStatus === "COMPLETED" ? "✓ Completed" : "Mark as Complete"}
             </button>
-          </div>
-          <Link href={next ? `/learn/${params.courseId}/${next.id}` : "#"} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${next ? "text-[var(--ink)] bg-[#f2f0eb] hover:bg-[#e9e6df]" : "text-[var(--edge)] pointer-events-none"}`}>
-            <ChevronRight className="w-5 h-5" />
-          </Link>
-        </footer>
+
+            <Link href={next ? `/learn/${params.courseId}/${next.id}` : "#"} className={`flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl transition-all ${next ? "bg-[var(--ink)] text-white shadow-md hover:bg-[#2a2d43]" : "opacity-30 pointer-events-none"}`}>
+              Next Lesson <ChevronRight className="w-4 h-4" />
+            </Link>
+          </footer>
+        </div>
       </div>
     </ProtectedPage>
   );
 }
+

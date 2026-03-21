@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowRight, Award, BookOpen, Clock, TrendingUp } from "lucide-react";
+import { ArrowRight, Award, BookOpen, Clock, TrendingUp, GraduationCap } from "lucide-react";
 import { ProtectedPage } from "@/components/protected-page";
+import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession, signOutSession } from "@/lib/supabase-auth";
 
@@ -158,6 +159,7 @@ export default function DashboardPage() {
               <Link href="/backoffice" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Instructor Lab</Link>
             </nav>
             <div className="flex items-center gap-4">
+              <NotificationBell />
               <div className="px-3 py-1.5 rounded-full bg-white/70 border border-[var(--edge)] font-mono text-xs flex items-center gap-2">
                 <Award className="w-3.5 h-3.5 text-[var(--accent-peach)]" />
                 <span>{roleLabel}</span>
@@ -262,6 +264,14 @@ export default function DashboardPage() {
     );
   }
 
+  // Calculate rank based on totalPoints
+  const rank = (profile?.totalPoints ?? 0) < 20 ? "Newbie" :
+               (profile?.totalPoints ?? 0) < 40 ? "Explorer" :
+               (profile?.totalPoints ?? 0) < 60 ? "Achiever" :
+               (profile?.totalPoints ?? 0) < 80 ? "Specialist" :
+               (profile?.totalPoints ?? 0) < 100 ? "Expert" :
+               "Master";
+
   return (
     <ProtectedPage>
       <div className="max-w-[1400px] mx-auto px-6 py-12 lg:px-12 lg:py-16">
@@ -277,10 +287,11 @@ export default function DashboardPage() {
             <Link href="/courses" className="text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors">Explore</Link>
           </nav>
           <div className="flex items-center gap-4">
+            <NotificationBell />
             <div className="px-3 py-1.5 rounded-full bg-white/70 border border-[var(--edge)] font-mono text-xs flex items-center gap-2">
-              <Award className="w-3.5 h-3.5 text-[var(--accent-peach)]" />
-              <span>{profile?.currentBadge ?? roleLabel}</span>
-              <span className="text-[var(--ink-soft)] ml-2">{profile?.totalPoints ?? 0} pts</span>
+              <GraduationCap className="w-3.5 h-3.5 text-[var(--ink-soft)]" />
+              <span className="text-[var(--ink-soft)]">Rank:</span>
+              <span className="font-bold text-[var(--ink)]">{rank}</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-[#f2f0eb] overflow-hidden border border-[var(--edge)]">
               <img
@@ -348,21 +359,62 @@ export default function DashboardPage() {
 
           <div className="lg:col-span-4 lg:pl-8">
             <div className="sticky top-12 flex flex-col gap-6">
-              <div className="bg-[var(--ink)] text-white p-8 rounded-3xl relative overflow-hidden">
+              <div className="bg-[var(--ink)] text-white p-8 rounded-3xl relative overflow-hidden shadow-2xl">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl" />
-                <h3 className="font-mono text-xs opacity-70 mb-6 tracking-widest uppercase">Weekly Activity</h3>
-                <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-heading text-5xl font-semibold">{summary?.inProgressCourses ?? 0}</span>
-                  <span className="font-mono text-sm opacity-70">active</span>
-                </div>
-                <p className="text-sm opacity-80 leading-relaxed mb-8">
-                  Completed courses: {summary?.completedCourses ?? 0}. Yet to start: {summary?.yetToStartCourses ?? 0}.
-                </p>
-                <div className="flex items-center gap-4 text-sm font-mono border-t border-white/10 pt-4">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-[var(--accent-peach)]" />
-                    <span>Learning momentum</span>
+                <h3 className="font-mono text-[10px] opacity-70 mb-6 tracking-widest uppercase">Badge Progression</h3>
+                
+                <div className="space-y-6">
+                  {/* Badge Progress Bar */}
+                  <div>
+                    <div className="flex justify-between items-end mb-2">
+                      <span className="font-heading text-4xl font-black">{profile?.totalPoints ?? 0} <span className="text-xs font-mono opacity-50 uppercase tracking-widest">Points</span></span>
+                      <span className="font-mono text-[10px] opacity-70 uppercase">Next Rank at {
+                        (profile?.totalPoints ?? 0) < 20 ? 20 : 
+                        (profile?.totalPoints ?? 0) < 40 ? 40 : 
+                        (profile?.totalPoints ?? 0) < 60 ? 60 : 
+                        (profile?.totalPoints ?? 0) < 80 ? 80 : 
+                        (profile?.totalPoints ?? 0) < 100 ? 100 : 120
+                      }</span>
+                    </div>
+                    <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-[var(--accent-blue)] to-[var(--accent-peach)] transition-all duration-1000"
+                        style={{ width: `${Math.min(((profile?.totalPoints ?? 0) / 120) * 100, 100)}%` }}
+                      />
+                    </div>
                   </div>
+
+                  {/* Badge Tiers */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { name: "Newbie", pts: 20 },
+                      { name: "Explorer", pts: 40 },
+                      { name: "Achiever", pts: 60 },
+                      { name: "Specialist", pts: 80 },
+                      { name: "Expert", pts: 100 },
+                      { name: "Master", pts: 120 }
+                    ].map((tier) => {
+                      const isUnlocked = (profile?.totalPoints ?? 0) >= tier.pts;
+                      return (
+                        <div 
+                          key={tier.name}
+                          className={`p-3 rounded-2xl border transition-all ${isUnlocked ? "bg-white/10 border-white/20" : "bg-black/20 border-white/5 opacity-40"}`}
+                        >
+                          <p className="font-heading text-[10px] font-bold mb-1 truncate">{tier.name}</p>
+                          <p className="font-mono text-[8px] opacity-50">{tier.pts}pts</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-8 pt-6 border-t border-white/10 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
+                    <TrendingUp className="w-4 h-4 text-[var(--accent-peach)]" />
+                  </div>
+                  <p className="text-[10px] font-mono opacity-70 leading-snug">
+                    Complete quizzes to earn points and climb the ranks.
+                  </p>
                 </div>
               </div>
 

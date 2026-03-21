@@ -9,6 +9,10 @@ const idSchema = z.string().min(1);
 type ReportRow = {
   participantName: string;
   participantEmail: string;
+  enrolledAt: Date | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  timeSpentSeconds: number;
   completedLessons: number;
   totalLessons: number;
   completionPercent: number;
@@ -44,36 +48,49 @@ reportsRouter.get(
 
       const totalLessons = course.lessons.length;
 
+      // Get progress
       const progress = await prisma.courseProgress.findMany({
-        where: {
-          courseId
-        },
+        where: { courseId },
         include: {
           user: {
-            select: {
-              id: true,
-              fullName: true,
-              email: true
-            }
+            select: { id: true, fullName: true, email: true }
           }
         }
       });
 
-      const byUser = new Map<string, ReportRow>();
+      // Get enrollment dates
+      const attendees = await prisma.courseAttendee.findMany({
+        where: { courseId },
+        select: { userId: true, enrolledAt: true }
+      });
+      const enrollmentMap = new Map(attendees.map(a => [a.userId, a.enrolledAt]));
 
-      for (const item of progress) {
-        const key = item.user.id;
-        byUser.set(key, {
-          participantName: item.user.fullName,
-          participantEmail: item.user.email,
-          completedLessons: item.completedLessons,
-          totalLessons: item.totalLessons || totalLessons,
-          completionPercent: item.completionPercent,
-          status: item.status
-        });
+      // Get time spent (aggregated from lesson progress)
+      const lessonProgress = await prisma.lessonProgress.findMany({
+        where: {
+          userId: { in: progress.map(p => p.userId) },
+          lesson: { courseId }
+        },
+        select: { userId: true, timeSpentSeconds: true }
+      });
+
+      const timeSpentMap = new Map<string, number>();
+      for (const lp of lessonProgress) {
+        timeSpentMap.set(lp.userId, (timeSpentMap.get(lp.userId) || 0) + lp.timeSpentSeconds);
       }
 
-      const rows = Array.from(byUser.values());
+      const rows: ReportRow[] = progress.map(p => ({
+        participantName: p.user.fullName,
+        participantEmail: p.user.email,
+        enrolledAt: enrollmentMap.get(p.userId) || null,
+        startedAt: p.startedAt,
+        completedAt: p.completedAt,
+        timeSpentSeconds: timeSpentMap.get(p.userId) || 0,
+        completedLessons: p.completedLessons,
+        totalLessons: p.totalLessons || totalLessons,
+        completionPercent: p.completionPercent,
+        status: p.status
+      }));
 
       return res.status(200).json({
         overview: {

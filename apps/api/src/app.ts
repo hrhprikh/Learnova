@@ -11,6 +11,7 @@ import { protectedRouter } from "./routes/protected.js";
 import { progressRouter } from "./routes/progress.js";
 import { quizzesRouter } from "./routes/quizzes.js";
 import { reportsRouter } from "./routes/reports.js";
+import { notificationsRouter } from "./routes/notifications.js";
 
 export const app = express();
 
@@ -26,6 +27,7 @@ app.use("/api/v1", lessonsRouter);
 app.use("/api/v1", progressRouter);
 app.use("/api/v1", quizzesRouter);
 app.use("/api/v1", reportsRouter);
+app.use("/api/v1", notificationsRouter);
 app.use("/api/v1", protectedRouter);
 
 app.use((_req, res) => {

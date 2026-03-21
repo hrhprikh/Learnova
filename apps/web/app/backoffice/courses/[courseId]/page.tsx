@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle } from "lucide-react";
+import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle, Eye, Settings, Share2, Tag, Users, Mail, Save } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
+import { uploadFile } from "@/lib/storage";
 import QuizQuestionEditor from "@/components/QuizQuestionEditor";
 
 type LocalOption = { text: string; isCorrect: boolean };
@@ -35,6 +37,13 @@ type CourseDetail = {
     title: string;
     description: string | null;
     published: boolean;
+    visibility: "EVERYONE" | "SIGNED_IN";
+    accessRule: "OPEN" | "INVITATION" | "PAYMENT";
+    price: number | null;
+    imageUrl: string | null;
+    website: string | null;
+    responsibleUserId: string | null;
+    tags: Array<{ id: string; tag: string }>;
     lessons: Lesson[];
 };
 
@@ -44,9 +53,35 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
     const [error, setError] = useState<string | null>(null);
     const [instructors] = useState<Instructor[]>([]);
     
+    // Course-level tab state
+    const [courseTab, setCourseTab] = useState<"CONTENT" | "SETTINGS" | "DESCRIPTION" | "OPTIONS" | "ATTENDEES">("CONTENT");
+    const [courseForm, setCourseForm] = useState({
+        title: "",
+        description: "",
+        imageUrl: "",
+        website: "",
+        visibility: "EVERYONE" as "EVERYONE" | "SIGNED_IN",
+        accessRule: "OPEN" as "OPEN" | "INVITATION" | "PAYMENT",
+        price: "",
+        responsibleUserId: "",
+        tagsInput: ""
+    });
+    const [isSavingCourse, setIsSavingCourse] = useState(false);
+    const [courseSaveMsg, setCourseSaveMsg] = useState<string | null>(null);
+    
+    // Attendees state
+    type AttendeeItem = { id: string; userId: string; fullName: string; email: string; enrolledAt: string };
+    const [attendees, setAttendees] = useState<AttendeeItem[]>([]);
+    const [inviteEmail, setInviteEmail] = useState("");
+    const [attendeeMsg, setAttendeeMsg] = useState<string | null>(null);
+    const [isInviting, setIsInviting] = useState(false);
+    
     // Editor State
     const [showLessonPopup, setShowLessonPopup] = useState(false);
     const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+    const [showContactModal, setShowContactModal] = useState(false);
+    const [contactForm, setContactForm] = useState({ subject: "", message: "" });
+    const [isSendingMail, setIsSendingMail] = useState(false);
     const [activeTab, setActiveTab] = useState<"CONTENT" | "DESCRIPTION" | "ATTACHMENTS" | "QUESTIONS">("CONTENT");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -80,7 +115,20 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 setToken(t);
 
                 const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token: t });
-                if (active) setCourse(response.course);
+                if (active) {
+                    setCourse(response.course);
+                    setCourseForm({
+                        title: response.course.title,
+                        description: response.course.description || "",
+                        imageUrl: response.course.imageUrl || "",
+                        website: response.course.website || "",
+                        visibility: response.course.visibility || "EVERYONE",
+                        accessRule: response.course.accessRule || "OPEN",
+                        price: response.course.price?.toString() || "",
+                        responsibleUserId: response.course.responsibleUserId || "",
+                        tagsInput: response.course.tags?.map(t2 => t2.tag).join(", ") || ""
+                    });
+                }
             } catch {
                 if (active) setError("Could not load course details");
             }
@@ -253,6 +301,90 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
         }
     }
 
+    async function saveCourseSettings() {
+        if (!token || !course) return;
+        setIsSavingCourse(true);
+        setCourseSaveMsg(null);
+        try {
+            const tagsArr = courseForm.tagsInput.split(",").map(t2 => t2.trim()).filter(Boolean);
+            await apiRequest(`/courses/${params.courseId}`, {
+                method: "PATCH",
+                token,
+                body: {
+                    title: courseForm.title.trim() || undefined,
+                    description: courseForm.description || undefined,
+                    imageUrl: courseForm.imageUrl || undefined,
+                    website: courseForm.website || undefined,
+                    visibility: courseForm.visibility,
+                    accessRule: courseForm.accessRule,
+                    ...(courseForm.accessRule === "PAYMENT" && courseForm.price ? { price: Number(courseForm.price) } : {}),
+                    responsibleUserId: courseForm.responsibleUserId || undefined,
+                    tags: tagsArr
+                }
+            });
+            const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
+            setCourse(response.course);
+            setCourseSaveMsg("Saved successfully!");
+            setTimeout(() => setCourseSaveMsg(null), 3000);
+        } catch (err) {
+            setCourseSaveMsg(err instanceof Error ? err.message : "Failed to save");
+        } finally {
+            setIsSavingCourse(false);
+        }
+    }
+
+    async function togglePublish() {
+        if (!token || !course) return;
+        try {
+            await apiRequest(`/courses/${params.courseId}/${course.published ? "unpublish" : "publish"}`, {
+                method: "POST", token
+            });
+            const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
+            setCourse(response.course);
+        } catch {
+            alert("Failed to change publish state");
+        }
+    }
+
+    async function loadAttendees() {
+        if (!token) return;
+        try {
+            const res = await apiRequest<{ attendees: AttendeeItem[] }>(`/courses/${params.courseId}/attendees`, { token });
+            setAttendees(res.attendees);
+        } catch {
+            setAttendees([]);
+        }
+    }
+
+    async function inviteAttendee() {
+        if (!token || !inviteEmail.trim()) return;
+        setIsInviting(true);
+        setAttendeeMsg(null);
+        try {
+            await apiRequest(`/courses/${params.courseId}/attendees`, {
+                method: "POST", token, body: { email: inviteEmail.trim() }
+            });
+            setInviteEmail("");
+            setAttendeeMsg("User added successfully!");
+            await loadAttendees();
+            setTimeout(() => setAttendeeMsg(null), 3000);
+        } catch (err) {
+            setAttendeeMsg(err instanceof Error ? err.message : "Failed to add user");
+        } finally {
+            setIsInviting(false);
+        }
+    }
+
+    async function removeAttendee(userId: string) {
+        if (!token || !confirm("Remove this attendee?")) return;
+        try {
+            await apiRequest(`/courses/${params.courseId}/attendees/${userId}`, { method: "DELETE", token });
+            await loadAttendees();
+        } catch {
+            alert("Failed to remove attendee");
+        }
+    }
+
     if (error) {
         return (
             <div className="min-h-screen bg-[var(--bg)] p-12">
@@ -266,7 +398,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
 
     return (
         <div className="min-h-screen bg-[var(--bg)] pb-24">
-            <header className="px-6 py-8 lg:px-12 flex items-center justify-between border-b border-[var(--edge)] bg-white/50 backdrop-blur-md sticky top-0 z-40">
+            <header className="px-6 py-5 lg:px-12 flex items-center justify-between border-b border-[var(--edge)] bg-white/50 backdrop-blur-md sticky top-0 z-40">
                 <div className="flex items-center gap-6">
                     <Link href="/backoffice" className="inline-flex items-center gap-2 text-[var(--ink-soft)] hover:text-[var(--ink)] transition-colors font-mono text-sm group">
                         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
@@ -280,52 +412,265 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                         <span className="mono-tag">Draft</span>
                     )}
                 </div>
-                <button onClick={openAddLesson} className="action-chip flex items-center gap-2">
-                    <Plus className="w-4 h-4" /> Add Lesson
-                </button>
+                <div className="flex items-center gap-3">
+                    <NotificationBell />
+                    <button onClick={() => setShowContactModal(true)} className="flex items-center gap-2 text-xs font-mono px-3 py-2 rounded-xl border border-[var(--edge)] hover:bg-gray-50 transition-colors">
+                        <Mail className="w-3.5 h-3.5" /> Contact Attendees
+                    </button>
+                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/courses/${course.id}`); alert("Link copied!"); }} className="flex items-center gap-2 text-xs font-mono px-3 py-2 rounded-xl border border-[var(--edge)] hover:bg-gray-50 transition-colors">
+                        <Share2 className="w-3.5 h-3.5" /> Share
+                    </button>
+                    <Link href={`/courses/${course.id}`} target="_blank" className="flex items-center gap-2 text-xs font-mono px-3 py-2 rounded-xl border border-[var(--edge)] hover:bg-gray-50 transition-colors">
+                        <Eye className="w-3.5 h-3.5" /> Preview
+                    </Link>
+                    <button onClick={togglePublish} className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl transition-colors ${course.published ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100' : 'bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100'}`}>
+                        {course.published ? "✓ Published" : "Publish"}
+                    </button>
+                    <button onClick={openAddLesson} className="action-chip flex items-center gap-2">
+                        <Plus className="w-4 h-4" /> Add Lesson
+                    </button>
+                </div>
             </header>
 
-            <main className="max-w-4xl mx-auto mt-12 px-6">
-                <section className="paper-panel">
-                    <p className="mono-note mb-4">Course outline</p>
-                    <div className="space-y-4">
-                        {course.lessons.length === 0 ? (
-                            <div className="py-12 text-center rounded-2xl border border-dashed border-[var(--edge)]">
-                                <p className="body-copy">No lessons added yet. Start by adding a video or document.</p>
-                            </div>
-                        ) : null}
-                        {course.lessons.map((lesson, idx) => (
-                            <div key={lesson.id} className="lesson-row justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-[var(--edge)]">
-                                        {renderLessonIcon(lesson.type)}
+            {/* Course-level tabs */}
+            <div className="px-6 lg:px-12 flex border-b border-[var(--edge)] bg-white sticky top-[73px] z-30">
+                {(["CONTENT", "SETTINGS", "DESCRIPTION", "OPTIONS", "ATTENDEES"] as const).map(tab => (
+                    <button key={tab} onClick={() => { setCourseTab(tab); if (tab === "ATTENDEES") loadAttendees(); }} className={`px-5 py-3.5 text-sm font-medium transition-all relative ${courseTab === tab ? 'text-[var(--ink)]' : 'text-[var(--ink-soft)] hover:text-[var(--ink)]'}`}>
+                        <div className="flex items-center gap-2">
+                            {tab === "CONTENT" && <FileText className="w-3.5 h-3.5" />}
+                            {tab === "SETTINGS" && <Settings className="w-3.5 h-3.5" />}
+                            {tab === "DESCRIPTION" && <Type className="w-3.5 h-3.5" />}
+                            {tab === "OPTIONS" && <Globe className="w-3.5 h-3.5" />}
+                            {tab === "ATTENDEES" && <Users className="w-3.5 h-3.5" />}
+                            {tab.charAt(0) + tab.slice(1).toLowerCase()}
+                        </div>
+                        {courseTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--ink)]" />}
+                    </button>
+                ))}
+            </div>
+
+            <main className="max-w-4xl mx-auto mt-8 px-6">
+
+                {/* ===== CONTENT TAB ===== */}
+                {courseTab === "CONTENT" && (
+                    <section className="paper-panel">
+                        <p className="mono-note mb-4">Course outline</p>
+                        <div className="space-y-4">
+                            {course.lessons.length === 0 ? (
+                                <div className="py-12 text-center rounded-2xl border border-dashed border-[var(--edge)]">
+                                    <p className="body-copy">No lessons added yet. Start by adding a video or document.</p>
+                                </div>
+                            ) : null}
+                            {course.lessons.map((lesson, idx) => (
+                                <div key={lesson.id} className="lesson-row justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-[var(--edge)]">
+                                            {renderLessonIcon(lesson.type)}
+                                        </div>
+                                        <div>
+                                            <span className="font-mono text-[10px] text-[var(--ink-soft)]">PART {String(idx + 1).padStart(2, '0')}</span>
+                                            <h3 className="font-medium text-[var(--ink)]">{lesson.title}</h3>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-3">
+                                        {lesson.type === 'VIDEO' && lesson.videoUrl && (
+                                            <span className="font-mono text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Video Attached</span>
+                                        )}
+                                        {lesson.type === 'QUIZ' && lesson.quiz && (
+                                            <Link href={`/backoffice/quizzes/${lesson.quiz.id}`} className="action-chip text-[10px] py-1 px-3">
+                                                Edit Quiz
+                                            </Link>
+                                        )}
+                                        <button onClick={() => openEditLesson(lesson)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Edit Lesson">
+                                            <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => deleteLesson(lesson.id)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Delete Lesson">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
+
+                {/* ===== SETTINGS TAB ===== */}
+                {courseTab === "SETTINGS" && (
+                    <section className="paper-panel space-y-8">
+                        <div>
+                            <p className="mono-note mb-6">Course settings</p>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Course Title</label>
+                                    <input className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors" value={courseForm.title} onChange={e => setCourseForm({...courseForm, title: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">
+                                        <span className="flex items-center gap-2"><Tag className="w-3 h-3" /> Tags</span>
+                                    </label>
+                                    <input className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-mono text-sm" placeholder="web, design, react (comma separated)" value={courseForm.tagsInput} onChange={e => setCourseForm({...courseForm, tagsInput: e.target.value})} />
+                                    <div className="flex flex-wrap gap-2 mt-3">
+                                        {courseForm.tagsInput.split(",").map(t2 => t2.trim()).filter(Boolean).map((tag, i) => (
+                                            <span key={i} className="mono-tag">{tag}</span>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Course Image</label>
+                                        <div className="flex gap-2">
+                                            <input className="flex-1 px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-mono text-sm" placeholder="https://..." value={courseForm.imageUrl} onChange={e => setCourseForm({...courseForm, imageUrl: e.target.value})} />
+                                            <label className="action-chip flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                                                <FileUp className="w-3.5 h-3.5" />
+                                                Upload
+                                                <input type="file" className="hidden" accept="image/*" onChange={async (e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    try {
+                                                        const url = await uploadFile(file);
+                                                        setCourseForm({ ...courseForm, imageUrl: url });
+                                                    } catch (err) {
+                                                        alert("Upload failed: " + (err instanceof Error ? err.message : "Internal error"));
+                                                    }
+                                                }} />
+                                            </label>
+                                        </div>
                                     </div>
                                     <div>
-                                        <span className="font-mono text-[10px] text-[var(--ink-soft)]">PART {String(idx + 1).padStart(2, '0')}</span>
-                                        <h3 className="font-medium text-[var(--ink)]">{lesson.title}</h3>
+                                        <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Website URL</label>
+                                        <input className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-mono text-sm" placeholder="https://..." value={courseForm.website} onChange={e => setCourseForm({...courseForm, website: e.target.value})} />
                                     </div>
                                 </div>
-                                
-                                <div className="flex items-center gap-3">
-                                    {lesson.type === 'VIDEO' && lesson.videoUrl && (
-                                        <span className="font-mono text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Video Attached</span>
-                                    )}
-                                    {lesson.type === 'QUIZ' && lesson.quiz && (
-                                        <Link href={`/backoffice/quizzes/${lesson.quiz.id}`} className="action-chip text-[10px] py-1 px-3">
-                                            Edit Quiz
-                                        </Link>
-                                    )}
-                                    <button onClick={() => openEditLesson(lesson)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Edit Lesson">
-                                        <Edit2 className="w-4 h-4" />
-                                    </button>
-                                    <button onClick={() => deleteLesson(lesson.id)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Delete Lesson">
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                <div>
+                                    <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Responsible / Course Admin</label>
+                                    <input className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-mono text-sm" placeholder="User ID (optional)" value={courseForm.responsibleUserId} onChange={e => setCourseForm({...courseForm, responsibleUserId: e.target.value})} />
                                 </div>
                             </div>
-                        ))}
-                    </div>
-                </section>
+                        </div>
+                        <div className="flex items-center gap-4 pt-4 border-t border-[var(--edge)]">
+                            <button onClick={saveCourseSettings} disabled={isSavingCourse} className="action-chip px-8">{isSavingCourse ? "Saving..." : "Save Settings"}</button>
+                            {courseSaveMsg && <span className="text-sm font-mono text-green-600">{courseSaveMsg}</span>}
+                        </div>
+                    </section>
+                )}
+
+                {/* ===== DESCRIPTION TAB ===== */}
+                {courseTab === "DESCRIPTION" && (
+                    <section className="paper-panel space-y-6">
+                        <div>
+                            <p className="mono-note mb-6">Course description</p>
+                            <p className="text-sm text-[var(--ink-soft)] mb-4">This description is shown to learners on the course detail page.</p>
+                            <textarea
+                                rows={14}
+                                className="w-full p-6 rounded-2xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors leading-relaxed"
+                                value={courseForm.description}
+                                onChange={e => setCourseForm({...courseForm, description: e.target.value})}
+                                placeholder="Write a compelling course description..."
+                            />
+                            <p className="text-xs text-[var(--ink-soft)] italic mt-2">Markdown is supported for basic formatting.</p>
+                        </div>
+                        <div className="flex items-center gap-4 pt-4 border-t border-[var(--edge)]">
+                            <button onClick={saveCourseSettings} disabled={isSavingCourse} className="action-chip px-8">{isSavingCourse ? "Saving..." : "Save Description"}</button>
+                            {courseSaveMsg && <span className="text-sm font-mono text-green-600">{courseSaveMsg}</span>}
+                        </div>
+                    </section>
+                )}
+
+                {/* ===== OPTIONS TAB ===== */}
+                {courseTab === "OPTIONS" && (
+                    <section className="paper-panel space-y-8">
+                        <div>
+                            <p className="mono-note mb-6">Access &amp; Visibility</p>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Visibility — Who can see this course?</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {(["EVERYONE", "SIGNED_IN"] as const).map(v => (
+                                            <button key={v} onClick={() => setCourseForm({...courseForm, visibility: v})} className={`p-4 rounded-xl border-2 text-left transition-all ${courseForm.visibility === v ? 'border-[var(--ink)] bg-[#f2f0eb]' : 'border-[var(--edge)] bg-white hover:border-gray-300'}`}>
+                                                <p className="text-sm font-medium">{v === "EVERYONE" ? "Everyone" : "Signed-in Users"}</p>
+                                                <p className="text-[10px] text-[var(--ink-soft)] mt-1">{v === "EVERYONE" ? "Course is visible to all visitors" : "Only logged-in users can see this course"}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Access Rule — Who can start learning?</label>
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {(["OPEN", "INVITATION", "PAYMENT"] as const).map(v => (
+                                            <button key={v} onClick={() => setCourseForm({...courseForm, accessRule: v})} className={`p-4 rounded-xl border-2 text-left transition-all ${courseForm.accessRule === v ? 'border-[var(--ink)] bg-[#f2f0eb]' : 'border-[var(--edge)] bg-white hover:border-gray-300'}`}>
+                                                <p className="text-sm font-medium">{v === "OPEN" ? "Open" : v === "INVITATION" ? "By Invitation" : "Paid"}</p>
+                                                <p className="text-[10px] text-[var(--ink-soft)] mt-1">{v === "OPEN" ? "Anyone can join" : v === "INVITATION" ? "Only invited users" : "Requires payment"}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                {courseForm.accessRule === "PAYMENT" && (
+                                    <div>
+                                        <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Price (₹)</label>
+                                        <input type="number" className="w-full max-w-xs px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-mono" placeholder="499" value={courseForm.price} onChange={e => setCourseForm({...courseForm, price: e.target.value})} />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4 pt-4 border-t border-[var(--edge)]">
+                            <button onClick={saveCourseSettings} disabled={isSavingCourse} className="action-chip px-8">{isSavingCourse ? "Saving..." : "Save Options"}</button>
+                            {courseSaveMsg && <span className="text-sm font-mono text-green-600">{courseSaveMsg}</span>}
+                        </div>
+                    </section>
+                )}
+
+                {/* ===== ATTENDEES TAB ===== */}
+                {courseTab === "ATTENDEES" && (
+                    <section className="paper-panel space-y-6">
+                        <div>
+                            <p className="mono-note mb-4">Attendees ({attendees.length})</p>
+                            <div className="flex gap-3 items-end">
+                                <div className="flex-1">
+                                    <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Invite by Email</label>
+                                    <input
+                                        className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-mono text-sm"
+                                        placeholder="learner@example.com"
+                                        value={inviteEmail}
+                                        onChange={e => setInviteEmail(e.target.value)}
+                                        onKeyDown={e => e.key === "Enter" && inviteAttendee()}
+                                    />
+                                </div>
+                                <button onClick={inviteAttendee} disabled={isInviting || !inviteEmail.trim()} className="action-chip px-6">
+                                    {isInviting ? "Adding..." : "Add Attendee"}
+                                </button>
+                            </div>
+                            {attendeeMsg && <p className="text-sm font-mono text-green-600 mt-2">{attendeeMsg}</p>}
+                        </div>
+                        <div className="space-y-2">
+                            {attendees.length === 0 ? (
+                                <div className="py-8 text-center rounded-2xl border border-dashed border-[var(--edge)]">
+                                    <p className="body-copy">No attendees enrolled yet. Invite learners by email above.</p>
+                                </div>
+                            ) : (
+                                attendees.map(att => (
+                                    <div key={att.id} className="lesson-row justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-8 h-8 rounded-full bg-[#f2f0eb] flex items-center justify-center border border-[var(--edge)]">
+                                                <Users className="w-3.5 h-3.5 text-[var(--ink-soft)]" />
+                                            </div>
+                                            <div>
+                                                <h4 className="font-medium text-sm">{att.fullName}</h4>
+                                                <p className="text-xs text-[var(--ink-soft)] font-mono">{att.email}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-[10px] font-mono text-[var(--ink-soft)]">{new Date(att.enrolledAt).toLocaleDateString()}</span>
+                                            <button onClick={() => removeAttendee(att.userId)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Remove">
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </section>
+                )}
             </main>
 
             {showLessonPopup && (
@@ -455,12 +800,28 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                                                 <p className="text-sm font-medium">Upload {lessonForm.type.toLowerCase()}</p>
                                                 <p className="text-xs text-[var(--ink-soft)] mt-1">Recommended: PDF or JPEG under 10MB</p>
                                             </div>
-                                            <input 
-                                                className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none" 
-                                                value={lessonForm.fileUrl}
-                                                onChange={e => setLessonForm({...lessonForm, fileUrl: e.target.value})}
-                                                placeholder="Direct file URL (e.g. S3 Bucket Link)"
-                                            />
+                                            <div className="flex gap-2">
+                                                <input 
+                                                    className="flex-1 px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none" 
+                                                    value={lessonForm.fileUrl}
+                                                    onChange={e => setLessonForm({...lessonForm, fileUrl: e.target.value})}
+                                                    placeholder="Direct file URL (e.g. S3 Bucket Link)"
+                                                />
+                                                <label className="action-chip flex items-center gap-2 cursor-pointer whitespace-nowrap">
+                                                    <FileUp className="w-3.5 h-3.5" />
+                                                    Upload
+                                                    <input type="file" className="hidden" accept={lessonForm.type === 'IMAGE' ? 'image/*' : '*/*'} onChange={async (e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (!file) return;
+                                                        try {
+                                                            const url = await uploadFile(file);
+                                                            setLessonForm({ ...lessonForm, fileUrl: url });
+                                                        } catch (err) {
+                                                            alert("Upload failed: " + (err instanceof Error ? err.message : "Internal error"));
+                                                        }
+                                                    }} />
+                                                </label>
+                                            </div>
                                             <label className="flex items-center gap-3 cursor-pointer">
                                                 <input 
                                                     type="checkbox" 
@@ -625,12 +986,30 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                                                     value={attachmentForm.label}
                                                     onChange={e => setAttachmentForm({...attachmentForm, label: e.target.value})}
                                                 />
-                                                <input 
-                                                    className="w-full px-4 py-2 rounded-xl border border-[var(--edge)] outline-none focus:border-[var(--ink)] transition-colors text-sm font-mono" 
-                                                    placeholder={showAttachmentAdd === "LINK" ? "https://github.com/..." : "https://s3.amazonaws.com/..."}
-                                                    value={attachmentForm.url}
-                                                    onChange={e => setAttachmentForm({...attachmentForm, url: e.target.value})}
-                                                />
+                                                <div className="flex gap-2">
+                                                    <input 
+                                                        className="flex-1 px-4 py-2 rounded-xl border border-[var(--edge)] outline-none focus:border-[var(--ink)] transition-colors text-sm font-mono" 
+                                                        placeholder={showAttachmentAdd === "LINK" ? "https://github.com/..." : "https://s3.amazonaws.com/..."}
+                                                        value={attachmentForm.url}
+                                                        onChange={e => setAttachmentForm({...attachmentForm, url: e.target.value})}
+                                                    />
+                                                    {showAttachmentAdd === "FILE" && (
+                                                        <label className="action-chip flex items-center gap-2 cursor-pointer whitespace-nowrap py-2">
+                                                            <FileUp className="w-3.5 h-3.5" />
+                                                            Upload
+                                                            <input type="file" className="hidden" onChange={async (e) => {
+                                                                const file = e.target.files?.[0];
+                                                                if (!file) return;
+                                                                try {
+                                                                    const url = await uploadFile(file);
+                                                                    setAttachmentForm({ ...attachmentForm, url: url });
+                                                                } catch (err) {
+                                                                    alert("Upload failed: " + (err instanceof Error ? err.message : "Internal error"));
+                                                                }
+                                                            }} />
+                                                        </label>
+                                                    )}
+                                                </div>
                                                 <button 
                                                     onClick={handleAddAttachment}
                                                     disabled={isSubmitting}
@@ -674,6 +1053,70 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                             </button>
                         </div>
 
+                    </div>
+                </div>
+            )}
+
+            {/* Contact Modal */}
+            {showContactModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[2.5rem] p-10 max-w-xl w-full shadow-2xl relative animate-in zoom-in-95 duration-300">
+                        <button onClick={() => setShowContactModal(false)} className="absolute top-8 right-8 text-[var(--ink-soft)] hover:text-[var(--ink)]"><X className="w-6 h-6" /></button>
+                        <h2 className="font-heading text-3xl font-bold mb-2">Contact Attendees</h2>
+                        <p className="body-copy-sm mb-8">Send an email notification to all {attendees.length} enrolled learners of this course.</p>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Subject</label>
+                                <input 
+                                    className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] outline-none focus:border-[var(--ink)] transition-colors" 
+                                    placeholder="Important update about..."
+                                    value={contactForm.subject}
+                                    onChange={e => setContactForm({...contactForm, subject: e.target.value})}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] block mb-2">Message</label>
+                                <textarea 
+                                    rows={8}
+                                    className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] outline-none focus:border-[var(--ink)] transition-colors leading-relaxed" 
+                                    placeholder="Draft your message to the learners..."
+                                    value={contactForm.message}
+                                    onChange={e => setContactForm({...contactForm, message: e.target.value})}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-8 flex items-center justify-between">
+                            <span className="text-[10px] font-mono text-[var(--ink-soft)] uppercase tracking-wider">{attendees.length} Recipients targeted</span>
+                            <button 
+                                onClick={async () => {
+                                    if (!token) return;
+                                    setIsSendingMail(true);
+                                    try {
+                                        await apiRequest(`/courses/${params.courseId}/contact`, {
+                                            method: "POST",
+                                            token,
+                                            body: {
+                                                subject: contactForm.subject,
+                                                body: contactForm.message
+                                            }
+                                        });
+                                        setShowContactModal(false);
+                                        setContactForm({ subject: "", message: "" });
+                                        alert("Message broadcasted to all attendees!");
+                                    } catch (err) {
+                                        alert("Failed to send message: " + (err instanceof Error ? err.message : "Error"));
+                                    } finally {
+                                        setIsSendingMail(false);
+                                    }
+                                }}
+                                disabled={isSendingMail || !contactForm.subject || !contactForm.message}
+                                className="action-chip px-8 disabled:opacity-50"
+                            >
+                                {isSendingMail ? "Sending..." : "Send Message"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

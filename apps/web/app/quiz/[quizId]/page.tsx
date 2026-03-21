@@ -186,12 +186,46 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
           ) : null}
 
           {result ? (
-            <section className="mt-10 bg-white border border-[var(--edge)] rounded-3xl p-6">
-              <p className="mono-note">result</p>
-              <p className="body-copy mt-3">Score: {result.scorePercent}%</p>
-              <p className="body-copy">Correct: {result.correctAnswers}/{result.totalQuestions}</p>
-              <p className="body-copy">Points earned: {result.earnedPoints}</p>
-            </section>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-500">
+              <div className="bg-white rounded-[3rem] p-12 max-w-sm w-full shadow-2xl text-center relative overflow-hidden animate-in zoom-in-95 duration-500 delay-100 fill-mode-both">
+                {/* Decorative Elements */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-2 bg-gradient-to-r from-[var(--accent-blue)] via-[var(--accent-peach)] to-[var(--accent-blue)]" />
+                <div className="w-24 h-24 rounded-full bg-[var(--accent-blue)]/10 flex items-center justify-center mx-auto mb-8 animate-bounce">
+                   <div className="w-16 h-16 rounded-full bg-[var(--accent-blue)] flex items-center justify-center text-white text-3xl font-bold shadow-lg shadow-[var(--accent-blue)]/40">
+                      ★
+                   </div>
+                </div>
+
+                <h2 className="font-heading text-4xl font-bold mb-4">Quiz Complete!</h2>
+                <div className="space-y-4 mb-10">
+                   <div className="inline-block px-4 py-1.5 rounded-full bg-[#f2f0eb] border border-[var(--edge)] font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)] mb-2">
+                     Attempt #{result.attemptNumber}
+                   </div>
+                   <div className="flex items-center justify-center gap-2">
+                      <span className="text-5xl font-heading font-black text-[var(--ink)]">+{result.earnedPoints}</span>
+                      <span className="font-mono text-sm text-[var(--ink-soft)]">pts</span>
+                   </div>
+                   <p className="text-[var(--ink-soft)] text-sm font-mono uppercase tracking-tighter">
+                      Score: <span className="text-[var(--ink)] font-bold">{result.scorePercent}%</span> • Correct: <span className="text-[var(--ink)] font-bold">{result.correctAnswers}/{result.totalQuestions}</span>
+                   </p>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                   <button 
+                      onClick={() => { setResult(null); setIndex(0); setStarted(false); }}
+                      className="w-full bg-[var(--ink)] text-white py-4 rounded-2xl font-bold text-sm shadow-xl hover:scale-105 active:scale-95 transition-all"
+                   >
+                      Continue
+                   </button>
+                   <Link 
+                      href="/dashboard"
+                      className="w-full py-4 text-[var(--ink-soft)] text-xs font-bold hover:text-[var(--ink)] transition-colors"
+                   >
+                      Back to Dashboard
+                   </Link>
+                </div>
+              </div>
+            </div>
           ) : null}
         </main>
       </div>
