@@ -63,7 +63,9 @@ reportsRouter.get(
         where: { courseId },
         select: { userId: true, enrolledAt: true }
       });
-      const enrollmentMap = new Map(attendees.map((a: { userId: string; enrolledAt: Date }) => [a.userId, a.enrolledAt]));
+      const enrollmentMap = new Map<string, Date | null>(
+        attendees.map((a: { userId: string; enrolledAt: Date | null }) => [a.userId, a.enrolledAt])
+      );
 
       // Get time spent (aggregated from lesson progress)
       const lessonProgress = await prisma.lessonProgress.findMany({
@@ -91,7 +93,7 @@ reportsRouter.get(
       }>).map((p) => ({
         participantName: p.user.fullName,
         participantEmail: p.user.email,
-        enrolledAt: enrollmentMap.get(p.userId) || null,
+        enrolledAt: enrollmentMap.get(p.userId) ?? null,
         startedAt: p.startedAt,
         completedAt: p.completedAt,
         timeSpentSeconds: timeSpentMap.get(p.userId) || 0,
