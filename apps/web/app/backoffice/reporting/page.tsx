@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Users, Clock, CheckCircle2, PlayCircle, Filter, Columns } from "lucide-react";
 import { apiRequest } from "@/lib/api";
@@ -62,7 +62,7 @@ function formatDate(dateStr: string | null) {
 
 type ColumnKey = (typeof ALL_COLUMNS)[number]["key"];
 
-export default function ReportingPage() {
+function ReportingPageContent() {
     const [token, setToken] = useState<string | null>(null);
     const [courses, setCourses] = useState<CourseItem[]>([]);
     const [selectedCourse, setSelectedCourse] = useState<string>("");
@@ -248,5 +248,13 @@ export default function ReportingPage() {
                 )}
             </main>
         </div>
+    );
+}
+
+export default function ReportingPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-[var(--bg)] flex items-center justify-center"><p className="mono-note">Initializing reporting module...</p></div>}>
+            <ReportingPageContent />
+        </Suspense>
     );
 }
