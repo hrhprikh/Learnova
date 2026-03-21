@@ -64,7 +64,7 @@ export default function QuizBuilder({ params }: { params: { quizId: string } }) 
             setSelectedItem(response.quiz.questions[0]!.id);
           }
         }
-      } catch (err) {
+      } catch {
         if (active) setError("Could not load quiz details");
       }
     }
@@ -94,8 +94,7 @@ export default function QuizBuilder({ params }: { params: { quizId: string } }) 
         questions: [...quiz.questions, response.question]
       });
       setSelectedItem(response.question.id);
-    } catch (err) {
-      console.error(err);
+    } catch {
       alert("Failed to add question");
     }
   }
@@ -116,7 +115,7 @@ export default function QuizBuilder({ params }: { params: { quizId: string } }) 
       });
       setQuiz({ ...quiz, ...response.quiz });
       alert("Rewards saved successfully");
-    } catch (err) {
+    } catch {
       alert("Failed to save rewards");
     } finally {
       setIsSaving(false);
@@ -147,7 +146,7 @@ export default function QuizBuilder({ params }: { params: { quizId: string } }) 
         questions: quiz.questions.map(q => q.id === questionEdit.id ? response.question : q)
       });
       alert("Question saved successfully");
-    } catch (err) {
+    } catch {
       alert("Failed to save question");
     } finally {
       setIsSaving(false);
@@ -170,7 +169,7 @@ export default function QuizBuilder({ params }: { params: { quizId: string } }) 
         questions: updatedQuestions
       });
       setSelectedItem(updatedQuestions.length > 0 ? (updatedQuestions[0]?.id || "REWARDS") : "REWARDS");
-    } catch (err) {
+    } catch {
       alert("Failed to delete question");
     } finally {
       setIsSaving(false);

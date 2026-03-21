@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle, Save } from "lucide-react";
+import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
 import QuizQuestionEditor from "@/components/QuizQuestionEditor";
@@ -42,7 +42,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
     const [course, setCourse] = useState<CourseDetail | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [instructors, setInstructors] = useState<Instructor[]>([]);
+    const [instructors] = useState<Instructor[]>([]);
     
     // Editor State
     const [showLessonPopup, setShowLessonPopup] = useState(false);
@@ -137,7 +137,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 ? `/lessons/${editingLessonId}` 
                 : `/courses/${params.courseId}/lessons`;
             
-            const result = await apiRequest<{ lesson: Lesson }>(url, {
+            await apiRequest<{ lesson: Lesson }>(url, {
                 method,
                 token,
                 body: {
@@ -190,7 +190,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
             // Refresh
             const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
             setCourse(response.course);
-        } catch (err) {
+        } catch {
             alert("Failed to delete lesson");
         }
     }
@@ -221,7 +221,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
             
             setAttachmentForm({ label: "", url: "" });
             setShowAttachmentAdd(null);
-        } catch (err) {
+        } catch {
             alert("Failed to add attachment");
         } finally {
             setIsSubmitting(false);
@@ -239,7 +239,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
             
             const updatedLesson = response.course.lessons.find(l => l.id === editingLessonId);
             if (updatedLesson) setAttachments(updatedLesson.attachments || []);
-        } catch (err) {
+        } catch {
             alert("Failed to delete attachment");
         }
     }

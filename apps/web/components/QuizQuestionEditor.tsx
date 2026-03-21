@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, CheckCircle2, Circle, Trash2, Save, HelpCircle } from "lucide-react";
+import { Plus, CheckCircle2, Circle, Trash2, HelpCircle } from "lucide-react";
 import { apiRequest } from "@/lib/api";
 
 type Option = {
@@ -73,7 +73,7 @@ export default function QuizQuestionEditor({ quizId, token }: QuizQuestionEditor
         setQuiz({ ...quiz, questions: [...quiz.questions, response.question] });
       }
       setSelectedQuestionId(response.question.id);
-    } catch (err) {
+    } catch {
       alert("Failed to add question");
     }
   };
@@ -98,7 +98,7 @@ export default function QuizQuestionEditor({ quizId, token }: QuizQuestionEditor
         });
       }
       alert("Question saved!");
-    } catch (err) {
+    } catch {
       alert("Failed to save question");
     } finally {
       setIsSaving(false);
@@ -115,7 +115,7 @@ export default function QuizQuestionEditor({ quizId, token }: QuizQuestionEditor
         setSelectedQuestionId(updated.length > 0 ? (updated[0]?.id || null) : null);
         if (updated.length === 0) setQuestionEdit(null);
       }
-    } catch (err) {
+    } catch {
       alert("Failed to delete question");
     }
   };
