@@ -57,6 +57,15 @@ function pointsForAttempt(attemptNumber: number, rewards: { r1: number; r2: numb
 }
 
 async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalPoints: number) {
+  type EligibleBadge = {
+    id: string;
+    name: string;
+    thresholdPoints: number;
+  };
+  type ExistingUserBadge = {
+    badgeId: string;
+  };
+
   // Ensure default badge ladder exists even if seed wasn't run.
   await Promise.all(
     REQUIRED_BADGE_LEVELS.map((badge) =>
@@ -71,7 +80,7 @@ async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalP
     )
   );
 
-  const badges = await tx.badgeDefinition.findMany({
+  const badges: EligibleBadge[] = await tx.badgeDefinition.findMany({
     where: {
       thresholdPoints: {
         lte: totalPoints
@@ -82,11 +91,11 @@ async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalP
     }
   });
 
-  const existing = await tx.userBadge.findMany({
+  const existing: ExistingUserBadge[] = await tx.userBadge.findMany({
     where: {
       userId,
       badgeId: {
-        in: badges.map((badge) => badge.id)
+        in: badges.map((badge: EligibleBadge) => badge.id)
       }
     },
     select: {
@@ -94,7 +103,7 @@ async function assignBadges(tx: Prisma.TransactionClient, userId: string, totalP
     }
   });
 
-  const existingBadgeIds = new Set(existing.map((item) => item.badgeId));
+  const existingBadgeIds = new Set(existing.map((item: ExistingUserBadge) => item.badgeId));
   const newlyAssigned: string[] = [];
 
   for (const badge of badges) {
