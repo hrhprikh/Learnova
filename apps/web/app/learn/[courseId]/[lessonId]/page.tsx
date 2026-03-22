@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Menu, ChevronLeft, ChevronRight, CheckCircle2, HelpCircle, X, Download, ExternalLink } from "lucide-react";
 import YouTube, { YouTubeProps } from "react-youtube";
 import { ProtectedPage } from "@/components/protected-page";
 import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
+
+const VIDEO_COMPLETION_THRESHOLD = 0.8;
 
 type LessonItem = {
   id: string;
@@ -20,9 +22,17 @@ type LessonItem = {
   quiz: { id: string; title: string } | null;
   learnerStatus: "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED";
   responsibleUser: { id: string; fullName: string } | null;
+  section: { id: string; title: string; orderIndex: number } | null;
 };
 
 type LessonsResponse = {
+  lessons: LessonItem[];
+};
+
+type SectionGroup = {
+  id: string;
+  title: string;
+  orderIndex: number;
   lessons: LessonItem[];
 };
 
@@ -46,6 +56,8 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [lessons, setLessons] = useState<LessonItem[]>([]);
   const [token, setToken] = useState<string | null>(null);
+  const watchProgressIntervalRef = useRef<number | null>(null);
+  const isMarkingCompleteRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -74,6 +86,78 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
   const previous = currentIndex > 0 ? lessons[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < lessons.length - 1 ? lessons[currentIndex + 1] : null;
 
+  const groupedSections = useMemo<SectionGroup[]>(() => {
+    const sectionMap = new Map<string, SectionGroup>();
+    const fallback: LessonItem[] = [];
+
+    for (const lesson of lessons) {
+      if (!lesson.section) {
+        fallback.push(lesson);
+        continue;
+      }
+      const existing = sectionMap.get(lesson.section.id);
+      if (existing) {
+        existing.lessons.push(lesson);
+      } else {
+        sectionMap.set(lesson.section.id, {
+          id: lesson.section.id,
+          title: lesson.section.title,
+          orderIndex: lesson.section.orderIndex,
+          lessons: [lesson]
+        });
+      }
+    }
+
+    const groups = [...sectionMap.values()].sort((a, b) => a.orderIndex - b.orderIndex);
+    if (groups.length === 0) {
+      return [
+        {
+          id: "fallback-course-content",
+          title: "Course Content",
+          orderIndex: 0,
+          lessons: [...fallback].sort((a, b) => lessons.findIndex((x) => x.id === a.id) - lessons.findIndex((x) => x.id === b.id))
+        }
+      ];
+    }
+
+    if (fallback.length > 0) {
+      groups.push({
+        id: "fallback-uncategorized",
+        title: "Uncategorized",
+        orderIndex: groups.length,
+        lessons: [...fallback].sort((a, b) => lessons.findIndex((x) => x.id === a.id) - lessons.findIndex((x) => x.id === b.id))
+      });
+    }
+
+    return groups;
+  }, [lessons]);
+
+  const unlockedSectionIds = useMemo(() => {
+    const unlocked = new Set<string>();
+    for (let index = 0; index < groupedSections.length; index += 1) {
+      const section = groupedSections[index];
+      if (!section) {
+        continue;
+      }
+
+      if (index === 0) {
+        unlocked.add(section.id);
+        continue;
+      }
+
+      const previousSection = groupedSections[index - 1];
+      if (!previousSection) {
+        continue;
+      }
+
+      const previousCompleted = previousSection.lessons.length > 0 && previousSection.lessons.every((lesson) => lesson.learnerStatus === "COMPLETED");
+      if (previousCompleted) {
+        unlocked.add(section.id);
+      }
+    }
+    return unlocked;
+  }, [groupedSections]);
+
   useEffect(() => {
     async function markStart() {
       if (!token || !current) return;
@@ -82,19 +166,78 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
     markStart().catch(() => null);
   }, [token, current?.id]);
 
-  async function markComplete() {
+  const stopWatchProgressTracking = useCallback(() => {
+    if (watchProgressIntervalRef.current !== null) {
+      window.clearInterval(watchProgressIntervalRef.current);
+      watchProgressIntervalRef.current = null;
+    }
+  }, []);
+
+  const markComplete = useCallback(async () => {
     if (!token || !current) return;
+    if (current.learnerStatus === "COMPLETED" || isMarkingCompleteRef.current) {
+      return;
+    }
+
+    isMarkingCompleteRef.current = true;
     try {
       await apiRequest(`/lessons/${current.id}/complete`, { method: "POST", token });
       setLessons(prev => prev.map(l => l.id === current.id ? { ...l, learnerStatus: "COMPLETED" } : l));
     } catch (err) {
       console.error(err);
+    } finally {
+      isMarkingCompleteRef.current = false;
     }
-  }
+  }, [token, current]);
 
   const onPlayerEnd: YouTubeProps['onEnd'] = async () => {
     await markComplete();
   };
+
+  const onPlayerStateChange: YouTubeProps["onStateChange"] = (event) => {
+    if (!current || current.type !== "VIDEO") {
+      stopWatchProgressTracking();
+      return;
+    }
+
+    if (event.data === 1) {
+      stopWatchProgressTracking();
+      watchProgressIntervalRef.current = window.setInterval(() => {
+        const duration = event.target.getDuration();
+        const currentTime = event.target.getCurrentTime();
+
+        if (!duration || duration <= 0) {
+          return;
+        }
+
+        if (currentTime / duration >= VIDEO_COMPLETION_THRESHOLD) {
+          stopWatchProgressTracking();
+          void markComplete();
+        }
+      }, 1500);
+      return;
+    }
+
+    if (event.data === 0) {
+      stopWatchProgressTracking();
+      void markComplete();
+      return;
+    }
+
+    if (event.data === 2 || event.data === -1 || event.data === 5) {
+      stopWatchProgressTracking();
+    }
+  };
+
+  useEffect(() => {
+    stopWatchProgressTracking();
+  }, [current?.id, stopWatchProgressTracking]);
+
+  useEffect(() => {
+    return () => {
+      stopWatchProgressTracking();
+    };
+  }, [stopWatchProgressTracking]);
 
   const progressPercent = lessons.length ? Math.round((lessons.filter(l => l.learnerStatus === "COMPLETED").length / lessons.length) * 100) : 0;
 
@@ -124,19 +267,41 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
                 </div>
               </div>
 
-              <nav className="space-y-1">
-                {lessons.map((lesson, idx) => (
-                  <Link
-                    key={lesson.id}
-                    href={`/learn/${params.courseId}/${lesson.id}`}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all ${lesson.id === params.lessonId ? "bg-[var(--ink)] text-white shadow-lg" : "text-[var(--ink-soft)] hover:bg-gray-50"}`}
-                  >
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center border font-mono text-[9px] ${lesson.id === params.lessonId ? "border-white/30 bg-white/10" : "border-[var(--edge)] bg-white"}`}>
-                      {lesson.learnerStatus === "COMPLETED" ? <CheckCircle2 className="w-3 h-3" /> : idx + 1}
+              <nav className="space-y-4">
+                {groupedSections.map((section, sectionIndex) => {
+                  const isSectionUnlocked = unlockedSectionIds.has(section.id);
+                  return (
+                    <div key={section.id} className="space-y-1">
+                      <p className="px-2 font-mono text-[9px] uppercase tracking-widest text-[var(--ink-soft)]">
+                        Chapter {String(sectionIndex + 1).padStart(2, "0")} · {section.title}
+                      </p>
+                      {section.lessons.map((lesson) => {
+                        const globalIndex = lessons.findIndex((item) => item.id === lesson.id);
+                        const isCurrent = lesson.id === params.lessonId;
+                        const isLocked = !isSectionUnlocked && !isCurrent;
+                        return (
+                          <Link
+                            key={lesson.id}
+                            href={isLocked ? "#" : `/learn/${params.courseId}/${lesson.id}`}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all ${isCurrent ? "bg-[var(--ink)] text-white shadow-lg" : isLocked ? "text-[var(--ink-soft)] opacity-50 cursor-not-allowed" : "text-[var(--ink-soft)] hover:bg-gray-50"}`}
+                            onClick={(event) => {
+                              if (isLocked) {
+                                event.preventDefault();
+                              }
+                            }}
+                          >
+                            <div className={`w-5 h-5 rounded-full flex items-center justify-center border font-mono text-[9px] ${isCurrent ? "border-white/30 bg-white/10" : "border-[var(--edge)] bg-white"}`}>
+                              {lesson.learnerStatus === "COMPLETED" ? <CheckCircle2 className="w-3 h-3" /> : globalIndex + 1}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <span className="block truncate font-medium">{lesson.title}</span>
+                            </div>
+                          </Link>
+                        );
+                      })}
                     </div>
-                    <span className="flex-1 truncate font-medium">{lesson.title}</span>
-                  </Link>
-                ))}
+                  );
+                })}
               </nav>
             </div>
           </div>
@@ -201,9 +366,13 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
                         videoId={getYouTubeVideoId(current.videoUrl) || ""}
                         opts={{ width: '100%', height: '100%', playerVars: { autoplay: 0, rel: 0, modestbranding: 1, color: 'white' } }}
                         onEnd={onPlayerEnd}
+                        onStateChange={onPlayerStateChange}
                         className="absolute inset-0 w-full h-full"
                       />
                     </div>
+                    <p className="mt-3 text-xs text-[var(--ink-soft)] font-mono uppercase tracking-wider text-center">
+                      Auto completes at 80% watched
+                    </p>
                   </div>
                 )}
 
@@ -265,9 +434,20 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
               <ChevronLeft className="w-4 h-4" /> Previous
             </Link>
 
-            <button onClick={markComplete} className="bg-[var(--ink)] text-white text-xs font-bold px-8 py-3 rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl disabled:opacity-50">
-              {current?.learnerStatus === "COMPLETED" ? "✓ Completed" : "Mark as Complete"}
-            </button>
+            {current?.type === "QUIZ" ? (
+              <span className="text-xs font-semibold text-[var(--ink-soft)]">Completes automatically after quiz submission</span>
+            ) : current?.type === "VIDEO" ? (
+              <div className="flex flex-col items-center gap-1">
+                <button onClick={markComplete} className="bg-[var(--ink)] text-white text-xs font-bold px-8 py-3 rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl disabled:opacity-50">
+                  {current?.learnerStatus === "COMPLETED" ? "✓ Completed" : "Mark as Complete"}
+                </button>
+                <span className="text-[10px] text-[var(--ink-soft)] font-mono uppercase tracking-wide">Auto-completes at 80% watched too</span>
+              </div>
+            ) : (
+              <button onClick={markComplete} className="bg-[var(--ink)] text-white text-xs font-bold px-8 py-3 rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl disabled:opacity-50">
+                {current?.learnerStatus === "COMPLETED" ? "✓ Completed" : "Mark as Complete"}
+              </button>
+            )}
 
             <Link href={next ? `/learn/${params.courseId}/${next.id}` : "#"} className={`flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl transition-all ${next ? "bg-[var(--ink)] text-white shadow-md hover:bg-[#2a2d43]" : "opacity-30 pointer-events-none"}`}>
               Next Lesson <ChevronRight className="w-4 h-4" />

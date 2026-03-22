@@ -42,6 +42,20 @@ const updateCourseSchema = courseInputSchema.partial().superRefine((value, ctx) 
 });
 
 const courseIdSchema = z.string().min(1);
+const sectionIdSchema = z.string().min(1);
+
+const createSectionSchema = z.object({
+  title: z.string().min(1).max(200),
+  orderIndex: z.number().int().nonnegative().optional()
+});
+
+const updateSectionSchema = z.object({
+  title: z.string().min(1).max(200).optional()
+});
+
+const reorderSectionsSchema = z.object({
+  sectionIds: z.array(z.string().min(1)).min(1)
+});
 
 const paymentEnrollmentSchema = z.object({
   paymentToken: z.string().min(1).optional(),
@@ -215,7 +229,290 @@ async function assertCanMutateCourse(courseId: string, userId: string, role: App
   return { error: null };
 }
 
+async function ensureSectionOwnedByCourse(sectionId: string, courseId: string) {
+  const section = await prisma.courseSection.findUnique({
+    where: { id: sectionId },
+    select: { id: true, courseId: true }
+  });
+
+  if (!section || section.courseId !== courseId) {
+    return null;
+  }
+
+  return section;
+}
+
+type CourseSectionLesson = {
+  id: string;
+  courseId: string;
+  sectionId: string | null;
+  title: string;
+  description: string | null;
+  type: "VIDEO" | "DOCUMENT" | "IMAGE" | "QUIZ";
+  orderIndex: number;
+  durationSeconds: number;
+  videoUrl: string | null;
+  fileUrl: string | null;
+  allowDownload: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  responsibleUserId: string | null;
+  quiz: { id: string; title: string } | null;
+};
+
+type CourseSectionNode = {
+  id: string;
+  courseId: string;
+  title: string;
+  orderIndex: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type CourseContentSection = CourseSectionNode & {
+  isFallback?: boolean;
+  lessons: CourseSectionLesson[];
+};
+
+function buildSectionedCourseContent(sections: CourseSectionNode[], lessons: CourseSectionLesson[]) {
+  const lessonsBySection = new Map<string, CourseSectionLesson[]>();
+  for (const lesson of lessons) {
+    if (!lesson.sectionId) {
+      continue;
+    }
+    const existing = lessonsBySection.get(lesson.sectionId) ?? [];
+    existing.push(lesson);
+    lessonsBySection.set(lesson.sectionId, existing);
+  }
+
+  const structuredSections: CourseContentSection[] = sections.map((section) => ({
+    ...section,
+    lessons: (lessonsBySection.get(section.id) ?? []).sort((a, b) => a.orderIndex - b.orderIndex)
+  }));
+
+  if (structuredSections.length === 0) {
+    return {
+      mode: "FALLBACK" as const,
+      sections: [
+        {
+          id: "fallback-course-content",
+          courseId: lessons[0]?.courseId ?? "",
+          title: "Course Content",
+          orderIndex: 0,
+          createdAt: new Date(0),
+          updatedAt: new Date(0),
+          isFallback: true,
+          lessons: [...lessons].sort((a, b) => a.orderIndex - b.orderIndex)
+        }
+      ]
+    };
+  }
+
+  const uncategorizedLessons = lessons.filter((lesson) => lesson.sectionId === null);
+  if (uncategorizedLessons.length > 0) {
+    structuredSections.push({
+      id: "fallback-uncategorized",
+      courseId: lessons[0]?.courseId ?? "",
+      title: "Uncategorized",
+      orderIndex: structuredSections.length,
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      isFallback: true,
+      lessons: uncategorizedLessons.sort((a, b) => a.orderIndex - b.orderIndex)
+    });
+  }
+
+  return {
+    mode: "SECTIONED" as const,
+    sections: structuredSections
+  };
+}
+
 export const coursesRouter = Router();
+
+coursesRouter.get(
+  "/courses/:courseId/sections",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const sections = await prisma.courseSection.findMany({
+        where: { courseId },
+        orderBy: { orderIndex: "asc" }
+      });
+
+      return res.status(200).json({ sections });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.post(
+  "/courses/:courseId/sections",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const payload = createSectionSchema.parse(req.body);
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const count = await prisma.courseSection.count({ where: { courseId } });
+      const section = await prisma.courseSection.create({
+        data: {
+          courseId,
+          title: payload.title,
+          orderIndex: payload.orderIndex ?? count
+        }
+      });
+
+      return res.status(201).json({ section });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.patch(
+  "/courses/:courseId/sections/reorder",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const payload = reorderSectionsSchema.parse(req.body);
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const uniqueIds = [...new Set(payload.sectionIds)];
+      const sections = await prisma.courseSection.findMany({
+        where: { courseId },
+        select: { id: true },
+        orderBy: { orderIndex: "asc" }
+      });
+
+      if (uniqueIds.length !== sections.length) {
+        return res.status(400).json({ message: "sectionIds must include each course section exactly once" });
+      }
+
+      const sectionIdSet = new Set(sections.map((section: { id: string }) => section.id));
+      const hasInvalid = uniqueIds.some((id) => !sectionIdSet.has(id));
+      if (hasInvalid) {
+        return res.status(400).json({ message: "sectionIds contains invalid section id" });
+      }
+
+      await prisma.$transaction(
+        uniqueIds.map((sectionId, index) =>
+          prisma.courseSection.update({
+            where: { id: sectionId },
+            data: { orderIndex: index },
+            select: { id: true }
+          })
+        )
+      );
+
+      return res.status(200).json({ message: "Sections reordered" });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.patch(
+  "/courses/:courseId/sections/:sectionId",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const sectionId = sectionIdSchema.parse(req.params.sectionId);
+      const payload = updateSectionSchema.parse(req.body);
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const section = await ensureSectionOwnedByCourse(sectionId, courseId);
+      if (!section) {
+        return res.status(404).json({ message: "Section not found" });
+      }
+
+      const updated = await prisma.courseSection.update({
+        where: { id: sectionId },
+        data: {
+          ...(payload.title !== undefined ? { title: payload.title } : {})
+        }
+      });
+
+      return res.status(200).json({ section: updated });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+coursesRouter.delete(
+  "/courses/:courseId/sections/:sectionId",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = courseIdSchema.parse(req.params.courseId);
+      const sectionId = sectionIdSchema.parse(req.params.sectionId);
+      const permission = await assertCanMutateCourse(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const section = await ensureSectionOwnedByCourse(sectionId, courseId);
+      if (!section) {
+        return res.status(404).json({ message: "Section not found" });
+      }
+
+      await prisma.$transaction([
+        prisma.lesson.updateMany({
+          where: { courseId, sectionId },
+          data: { sectionId: null }
+        }),
+        prisma.courseSection.delete({
+          where: { id: sectionId }
+        })
+      ]);
+
+      const remaining = await prisma.courseSection.findMany({
+        where: { courseId },
+        select: { id: true },
+        orderBy: { orderIndex: "asc" }
+      });
+
+      await prisma.$transaction(
+        remaining.map((item: { id: string }, index: number) =>
+          prisma.courseSection.update({
+            where: { id: item.id },
+            data: { orderIndex: index },
+            select: { id: true }
+          })
+        )
+      );
+
+      return res.status(204).send();
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
 
 // ─── Attendees Management ───────────────────────────────────────────
 coursesRouter.get(
@@ -698,6 +995,9 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
         tags: {
           select: { id: true, tag: true }
         },
+        sections: {
+          orderBy: { orderIndex: "asc" }
+        },
         lessons: {
           orderBy: { orderIndex: "asc" },
           include: {
@@ -790,11 +1090,17 @@ coursesRouter.get("/courses/:courseId", tryAttachUser, async (req, res, next) =>
       }
     }
 
+    const courseContent = buildSectionedCourseContent(
+      course.sections as CourseSectionNode[],
+      course.lessons as CourseSectionLesson[]
+    );
+
     return res.status(200).json({
       course: {
         ...course,
         viewsCount: enrolledCount
       },
+      courseContent,
       progress,
       isOwner,
       certificate
