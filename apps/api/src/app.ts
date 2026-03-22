@@ -26,16 +26,24 @@ app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(morgan("dev"));
 
-app.use("/api/v1", healthRouter);
-app.use("/api/v1", authRouter);
-app.use("/api/v1", adminRouter);
-app.use("/api/v1", coursesRouter);
-app.use("/api/v1", lessonsRouter);
-app.use("/api/v1", progressRouter);
-app.use("/api/v1", quizzesRouter);
-app.use("/api/v1", reportsRouter);
-app.use("/api/v1", notificationsRouter);
-app.use("/api/v1", protectedRouter);
+const apiRouters: express.Router[] = [
+  healthRouter,
+  authRouter,
+  adminRouter,
+  coursesRouter,
+  lessonsRouter,
+  progressRouter,
+  quizzesRouter,
+  reportsRouter,
+  notificationsRouter,
+  protectedRouter
+];
+
+for (const prefix of ["/api/v1", "/v1"]) {
+  for (const router of apiRouters) {
+    app.use(prefix, router);
+  }
+}
 
 app.use((_req, res) => {
   res.status(404).json({ message: "Route not found" });
