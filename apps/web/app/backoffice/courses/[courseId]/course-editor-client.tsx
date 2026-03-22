@@ -168,6 +168,155 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
         setDidAutoOpenLesson(true);
     }, [course, didAutoOpenLesson, searchParams]);
 
+<<<<<<< Updated upstream
+=======
+    async function refreshCourseAndSections(activeToken?: string) {
+        const authToken = activeToken ?? token;
+        if (!authToken) {
+            return null;
+        }
+        const [courseResponse, sectionsResponse] = await Promise.all([
+            apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token: authToken }),
+            apiRequest<{ sections: CourseSection[] }>(`/courses/${params.courseId}/sections`, { token: authToken })
+        ]);
+        setCourse(courseResponse.course);
+        setSections(sectionsResponse.sections);
+        return { course: courseResponse.course, sections: sectionsResponse.sections };
+    }
+
+    async function createSection() {
+        if (!token || !newSectionTitle.trim()) return;
+        setIsSavingSection(true);
+        try {
+            await apiRequest(`/courses/${params.courseId}/sections`, {
+                method: "POST",
+                token,
+                body: { title: newSectionTitle.trim() }
+            });
+            setNewSectionTitle("");
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to create chapter");
+        } finally {
+            setIsSavingSection(false);
+        }
+    }
+
+    async function renameSection(section: CourseSection) {
+        if (!token) return;
+        const nextTitle = prompt("Rename chapter", section.title);
+        if (!nextTitle || !nextTitle.trim() || nextTitle.trim() === section.title) return;
+        try {
+            await apiRequest(`/courses/${params.courseId}/sections/${section.id}`, {
+                method: "PATCH",
+                token,
+                body: { title: nextTitle.trim() }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to rename chapter");
+        }
+    }
+
+    async function deleteSection(section: CourseSection) {
+        if (!token) return;
+        if (!confirm(`Delete chapter "${section.title}"? Lessons will be moved to Uncategorized.`)) return;
+        try {
+            await apiRequest(`/courses/${params.courseId}/sections/${section.id}`, {
+                method: "DELETE",
+                token
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to delete chapter");
+        }
+    }
+
+    async function moveSection(sectionId: string, direction: "up" | "down") {
+        if (!token) return;
+        const currentIndex = sections.findIndex((section) => section.id === sectionId);
+        if (currentIndex < 0) return;
+
+        const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex < 0 || targetIndex >= sections.length) return;
+
+        const reordered = [...sections];
+        const [moved] = reordered.splice(currentIndex, 1);
+        if (!moved) return;
+        reordered.splice(targetIndex, 0, moved);
+
+        try {
+            setIsSavingSection(true);
+            await apiRequest(`/courses/${params.courseId}/sections/reorder`, {
+                method: "PATCH",
+                token,
+                body: { sectionIds: reordered.map((section) => section.id) }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to reorder chapters");
+        } finally {
+            setIsSavingSection(false);
+        }
+    }
+
+    async function moveLessonWithinGroup(groupLessonIds: string[], lessonId: string, direction: "up" | "down") {
+        if (!token || !course) return;
+
+        const groupIndex = groupLessonIds.findIndex((id) => id === lessonId);
+        if (groupIndex < 0) return;
+
+        const targetGroupIndex = direction === "up" ? groupIndex - 1 : groupIndex + 1;
+        if (targetGroupIndex < 0 || targetGroupIndex >= groupLessonIds.length) return;
+
+        const swapWithLessonId = groupLessonIds[targetGroupIndex];
+        if (!swapWithLessonId) return;
+
+        const lessonIds = course.lessons.map((lesson) => lesson.id);
+        const sourceIndex = lessonIds.findIndex((id) => id === lessonId);
+        const targetIndex = lessonIds.findIndex((id) => id === swapWithLessonId);
+        if (sourceIndex < 0 || targetIndex < 0) return;
+
+        const sourceLessonId = lessonIds[sourceIndex];
+        const targetLessonId = lessonIds[targetIndex];
+        if (!sourceLessonId || !targetLessonId) return;
+
+        lessonIds[sourceIndex] = targetLessonId;
+        lessonIds[targetIndex] = sourceLessonId;
+
+        try {
+            setIsReorderingLessons(true);
+            await apiRequest(`/courses/${params.courseId}/lessons/reorder`, {
+                method: "PATCH",
+                token,
+                body: { lessonIds }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to reorder lessons");
+        } finally {
+            setIsReorderingLessons(false);
+        }
+    }
+
+    async function moveLessonToSection(lessonId: string, sectionId: string | null) {
+        if (!token) return;
+        try {
+            setIsReorderingLessons(true);
+            await apiRequest(`/lessons/${lessonId}`, {
+                method: "PATCH",
+                token,
+                body: { sectionId }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to move lesson to chapter");
+        } finally {
+            setIsReorderingLessons(false);
+        }
+    }
+
+>>>>>>> Stashed changes
     function openEditLesson(lesson: Lesson) {
         setEditingLessonId(lesson.id);
         setLessonForm({
