@@ -122,7 +122,7 @@ export function UserProfileMenu({ fullNameSeed }: { fullNameSeed?: string }) {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-4 w-[340px] bg-white rounded-3xl border border-[var(--edge)] shadow-[0_20px_50px_rgba(0,0,0,0.15)] z-[110] overflow-hidden animate-in fade-in slide-in-from-top-2">
+        <div className="absolute right-0 mt-4 w-[340px] bg-white rounded-3xl border border-[var(--edge)] z-[110] overflow-hidden animate-in fade-in slide-in-from-top-2">
           <div className="p-5 border-b border-[var(--edge)] bg-gray-50/60">
             <h3 className="font-heading text-lg">Your Profile</h3>
             {me ? <p className="text-xs text-[var(--ink-soft)] mt-1">{me.email}</p> : null}

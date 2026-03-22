@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Menu, ChevronLeft, ChevronRight, CheckCircle2, HelpCircle, X, Download, ExternalLink } from "lucide-react";
 import YouTube, { YouTubeProps } from "react-youtube";
@@ -43,27 +44,43 @@ function getYouTubeVideoId(url: string) {
 }
 
 export default function LessonPlayerPage({ params }: { params: { courseId: string; lessonId: string } }) {
+  const router = useRouter();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [lessons, setLessons] = useState<LessonItem[]>([]);
   const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
 
     async function load() {
+      setIsLoading(true);
       const { data } = await getCurrentSession();
       const accessToken = data.session?.access_token;
-      if (!accessToken) return;
+      if (!accessToken) {
+        if (active) {
+          setLessons([]);
+          setIsLoading(false);
+        }
+        return;
+      }
       
-      const response = await apiRequest<LessonsResponse>(`/courses/${params.courseId}/lessons`, { token: accessToken });
+      const response = await apiRequest<LessonsResponse>(`/courses/${params.courseId}/lessons`, {
+        token: accessToken,
+        cacheTtlMs: 15000
+      });
       if (active) {
         setLessons(response.lessons);
         setToken(accessToken);
+        setIsLoading(false);
       }
     }
 
     load().catch(() => {
-      if (active) setLessons([]);
+      if (active) {
+        setLessons([]);
+        setIsLoading(false);
+      }
     });
 
     return () => { active = false; };
@@ -73,6 +90,15 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
   const current = currentIndex >= 0 ? lessons[currentIndex] : null;
   const previous = currentIndex > 0 ? lessons[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < lessons.length - 1 ? lessons[currentIndex + 1] : null;
+
+  useEffect(() => {
+    if (previous) {
+      router.prefetch(`/learn/${params.courseId}/${previous.id}`);
+    }
+    if (next) {
+      router.prefetch(`/learn/${params.courseId}/${next.id}`);
+    }
+  }, [next, params.courseId, previous, router]);
 
   useEffect(() => {
     async function markStart() {
@@ -97,6 +123,26 @@ export default function LessonPlayerPage({ params }: { params: { courseId: strin
   };
 
   const progressPercent = lessons.length ? Math.round((lessons.filter(l => l.learnerStatus === "COMPLETED").length / lessons.length) * 100) : 0;
+
+  if (isLoading) {
+    return (
+      <ProtectedPage>
+        <div className="h-screen bg-white flex overflow-hidden font-sans text-[var(--ink)]">
+          <aside className="w-72 border-r border-[var(--edge)] p-4 space-y-3">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <div key={index} className="h-10 rounded-xl bg-gray-100 animate-pulse" />
+            ))}
+          </aside>
+          <div className="flex-1 p-8 space-y-6 bg-[#FCFBFA]">
+            <div className="h-8 w-1/3 bg-gray-100 rounded animate-pulse" />
+            <div className="aspect-video bg-gray-200 rounded-3xl animate-pulse" />
+            <div className="h-4 w-2/3 bg-gray-100 rounded animate-pulse" />
+            <div className="h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
+          </div>
+        </div>
+      </ProtectedPage>
+    );
+  }
 
   return (
     <ProtectedPage>

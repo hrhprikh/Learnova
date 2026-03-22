@@ -36,50 +36,83 @@ type EnrolledResponse = {
 export default function ExploreCoursesPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [enrolledStatusByCourse, setEnrolledStatusByCourse] = useState<
     Record<string, "YET_TO_START" | "IN_PROGRESS" | "COMPLETED">
   >({});
 
   useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 250);
+
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [query]);
+
+  useEffect(() => {
     let active = true;
 
-    async function loadCourses() {
+    async function loadSession() {
       const { data } = await getCurrentSession();
-      const token = data.session?.access_token;
-
       if (active) {
-        setSessionToken(token ?? null);
-      }
-
-      const response = await apiRequest<CoursesResponse>(`/courses?search=${encodeURIComponent(query)}`, { token });
-
-      let enrolledMap: Record<string, "YET_TO_START" | "IN_PROGRESS" | "COMPLETED"> = {};
-      if (token) {
-        const enrolled = await apiRequest<EnrolledResponse>("/courses/enrolled", { token });
-        enrolledMap = Object.fromEntries(
-          enrolled.courses.map((course) => [course.id, course.progressStatus])
-        );
-      }
-
-      if (active) {
-        setCourses(response.courses);
-        setEnrolledStatusByCourse(enrolledMap);
+        setSessionToken(data.session?.access_token ?? null);
       }
     }
 
-    loadCourses().catch(() => {
+    loadSession().catch(() => {
       if (active) {
-        setCourses([]);
+        setSessionToken(null);
       }
     });
 
     return () => {
       active = false;
     };
-  }, [query]);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadCourses() {
+      setIsLoading(true);
+      const [response, enrolled] = await Promise.all([
+        apiRequest<CoursesResponse>(`/courses?search=${encodeURIComponent(debouncedQuery)}`, {
+          token: sessionToken ?? undefined,
+          cacheTtlMs: 20000
+        }),
+        sessionToken
+          ? apiRequest<EnrolledResponse>("/courses/enrolled", { token: sessionToken, cacheTtlMs: 10000 })
+          : Promise.resolve<EnrolledResponse>({ courses: [] })
+      ]);
+
+      const enrolledMap = Object.fromEntries(
+        enrolled.courses.map((course) => [course.id, course.progressStatus])
+      );
+
+      if (active) {
+        setCourses(response.courses);
+        setEnrolledStatusByCourse(enrolledMap);
+        setIsLoading(false);
+      }
+    }
+
+    loadCourses().catch(() => {
+      if (active) {
+        setCourses([]);
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [debouncedQuery, sessionToken]);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -159,7 +192,7 @@ export default function ExploreCoursesPage() {
               <div className="flex flex-wrap lg:flex-col gap-2">
                 <button 
                   onClick={() => setSelectedTag(null)}
-                  className={`text-left px-4 py-2 rounded-xl text-xs font-mono transition-all ${!selectedTag ? "bg-[var(--ink)] text-white shadow-lg" : "bg-white border border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--ink)]"}`}
+                  className={`text-left px-4 py-2 rounded-xl text-xs font-mono border transition-all ${!selectedTag ? "bg-[#1E1E1E] border-[#1E1E1E] text-white" : "bg-white border-[#EAE7E2] text-[#6B6B6B] hover:border-[#1E1E1E] hover:text-[#1E1E1E]"}`}
                 >
                   All Categories
                 </button>
@@ -167,7 +200,7 @@ export default function ExploreCoursesPage() {
                   <button 
                     key={tag}
                     onClick={() => setSelectedTag(tag)}
-                    className={`text-left px-4 py-2 rounded-xl text-xs font-mono transition-all ${selectedTag === tag ? "bg-[var(--accent-blue)] text-white shadow-lg" : "bg-white border border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--ink)]"}`}
+                    className={`text-left px-4 py-2 rounded-xl text-xs font-mono border transition-all ${selectedTag === tag ? "bg-[#1E1E1E] border-[#1E1E1E] text-white" : "bg-white border-[#EAE7E2] text-[#6B6B6B] hover:border-[#1E1E1E] hover:text-[#1E1E1E]"}`}
                   >
                     {tag}
                   </button>
@@ -241,7 +274,27 @@ export default function ExploreCoursesPage() {
                 </article>
               );
             })}
-            {filteredCourses.length === 0 ? (
+            {isLoading && filteredCourses.length === 0 ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <article
+                  key={`loading-${index}`}
+                  className="bg-white rounded-[2.5rem] border border-[var(--edge)] overflow-hidden animate-pulse"
+                >
+                  <div className="aspect-[16/9] bg-gray-100" />
+                  <div className="p-8 space-y-4">
+                    <div className="h-3 w-1/3 bg-gray-100 rounded" />
+                    <div className="h-8 w-3/4 bg-gray-100 rounded" />
+                    <div className="h-3 w-full bg-gray-100 rounded" />
+                    <div className="h-3 w-5/6 bg-gray-100 rounded" />
+                    <div className="pt-4 border-t border-[var(--edge)]/50 flex items-center justify-between">
+                      <div className="h-3 w-24 bg-gray-100 rounded" />
+                      <div className="h-9 w-20 bg-gray-100 rounded-full" />
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : null}
+            {filteredCourses.length === 0 && !isLoading ? (
               <div className="col-span-full py-24 text-center">
                  <p className="text-[var(--ink-soft)] font-mono text-sm mb-4">No learning modules found matching your filters.</p>
                  <button onClick={() => { setQuery(""); setSelectedTag(null); }} className="text-[var(--accent-blue)] text-xs font-bold hover:underline">Clear all filters</button>

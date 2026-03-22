@@ -350,6 +350,21 @@ coursesRouter.get("/courses/enrolled", requireAuth, async (req, res, next) => {
       ])
     );
 
+    const certificates = await prisma.certificate.findMany({
+      where: {
+        userId: req.user!.id,
+        courseId: { in: enrolled.map((item: (typeof enrolled)[number]) => item.course.id) }
+      },
+      select: {
+        courseId: true,
+        certificateCode: true
+      }
+    });
+
+    const certificateByCourse = new Map<string, string>(
+      certificates.map((item: { courseId: string; certificateCode: string }) => [item.courseId, item.certificateCode])
+    );
+
     return res.status(200).json({
       courses: enrolled.map((item: (typeof enrolled)[number]) => {
         const totalDuration = item.course.lessons.reduce(
@@ -366,8 +381,11 @@ coursesRouter.get("/courses/enrolled", requireAuth, async (req, res, next) => {
           lessonCount: item.course.lessons.length,
           durationSeconds: totalDuration,
           enrolledAt: item.enrolledAt,
+          accessRule: item.course.accessRule,
+          price: item.course.price,
           progressPercent: progress?.completionPercent ?? 0,
-          progressStatus: progress?.status ?? "YET_TO_START"
+          progressStatus: progress?.status ?? "YET_TO_START",
+          certificateCode: certificateByCourse.get(item.course.id) ?? null
         };
       })
     });
