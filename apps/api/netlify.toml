@@ -3,13 +3,7 @@
   functions = "netlify/functions"
 
 [[redirects]]
-  from = "/"
-  to = "/.netlify/functions/api/v1/health"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/*"
+  from = "/*"
   to = "/.netlify/functions/api/:splat"
   status = 200
   force = true
