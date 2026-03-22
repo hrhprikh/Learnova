@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "functions": {
+    "api/[...all].ts": {
+      "runtime": "@vercel/node@5.3.24"
+    }
+  }
+}
