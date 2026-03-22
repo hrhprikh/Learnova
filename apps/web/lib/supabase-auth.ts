@@ -31,6 +31,7 @@ type AuthFacade = {
     error: Error | null;
   }>;
   getSession: () => Promise<{ data: { session: Session | null }; error: Error | null }>;
+  refreshSession: () => Promise<{ data: { session: Session | null }; error: Error | null }>;
   signOut: () => Promise<{ error: Error | null }>;
   onAuthStateChange: (
     callback: (event: AuthChangeEvent, session: Session | null) => void
@@ -57,6 +58,10 @@ export async function signUpWithPassword(email: string, password: string, fullNa
 
 export async function getCurrentSession() {
   return auth.getSession();
+}
+
+export async function refreshCurrentSession() {
+  return auth.refreshSession();
 }
 
 export async function signOutSession() {

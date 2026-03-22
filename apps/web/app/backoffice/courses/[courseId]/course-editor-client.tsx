@@ -234,7 +234,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
 
     async function deleteSection(section: CourseSection) {
         if (!token) return;
-        if (!confirm(`Delete chapter \"${section.title}\"? Lessons will be moved to Uncategorized.`)) return;
+        if (!confirm(`Delete chapter "${section.title}"? Lessons will be moved to Uncategorized.`)) return;
         try {
             await apiRequest(`/courses/${params.courseId}/sections/${section.id}`, {
                 method: "DELETE",
