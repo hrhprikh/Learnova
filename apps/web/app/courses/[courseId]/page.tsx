@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Lock, PlayCircle, Mail, X, ChevronDown, ChevronRight, FileText, HelpCircle, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, PlayCircle, Mail, Star, X, ChevronDown, ChevronRight, FileText, HelpCircle, Video } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
@@ -92,7 +92,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [isOwner, setIsOwner] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
-  const [showCertificateModal, setShowCertificateModal] = useState(false);
   const [messageForm, setMessageForm] = useState({ subject: "", body: "" });
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,27 +99,30 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [rating, setRating] = useState(5);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [paymentUiState, setPaymentUiState] = useState<"idle" | "processing" | "success">("idle");
   const [showPurchaseSuccess, setShowPurchaseSuccess] = useState(false);
-  const [certificate, setCertificate] = useState<LearnerCertificate | null>(null);
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let active = true;
 
     async function loadCourse() {
+      setIsLoading(true);
       const { data } = await getCurrentSession();
       const token = data.session?.access_token;
-      const [courseResponse, reviewsResponse] = await Promise.all([
-        apiRequest<CourseResponse & { isOwner: boolean }>(`/courses/${params.courseId}`, { token }),
-        apiRequest<ReviewsResponse>(`/courses/${params.courseId}/reviews`)
+      const [courseResponse, reviewsResponse, enrolledResponse] = await Promise.all([
+        apiRequest<CourseResponse & { isOwner: boolean }>(`/courses/${params.courseId}`, {
+          token,
+          cacheTtlMs: 12000
+        }),
+        apiRequest<ReviewsResponse>(`/courses/${params.courseId}/reviews`, { cacheTtlMs: 15000 }),
+        token
+          ? apiRequest<{ courses: Array<{ id: string }> }>("/courses/enrolled", { token, cacheTtlMs: 8000 })
+          : Promise.resolve<{ courses: Array<{ id: string }> }>({ courses: [] })
       ]);
 
-      let enrolled = false;
-      if (token) {
-        const enrolledResponse = await apiRequest<{ courses: Array<{ id: string }> }>("/courses/enrolled", { token });
-        enrolled = enrolledResponse.courses.some((item) => item.id === params.courseId);
-      }
+      const enrolled = enrolledResponse.courses.some((item) => item.id === params.courseId);
 
       if (active) {
         setToken(token ?? null);
@@ -131,8 +133,8 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         setLessons(courseResponse.course.lessons);
         setCourseContent(courseResponse.courseContent ?? null);
         setProgress(courseResponse.progress);
-        setCertificate(courseResponse.certificate ?? null);
         setReviews(reviewsResponse);
+        setIsLoading(false);
       }
     }
 
@@ -143,8 +145,8 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         setLessons([]);
         setCourseContent(null);
         setProgress(null);
-        setCertificate(null);
         setReviews(null);
+        setIsLoading(false);
       }
     });
 
@@ -152,6 +154,12 @@ export default function CoursePage({ params }: { params: { courseId: string } })
       active = false;
     };
   }, [params.courseId]);
+
+  useEffect(() => {
+    if (!isOwner && isEnrolled && progress?.completionPercent === 100 && progress?.status === "COMPLETED") {
+      router.replace(`/courses/${params.courseId}/certificate`);
+    }
+  }, [isEnrolled, isOwner, params.courseId, progress?.completionPercent, progress?.status, router]);
 
   async function enrollNow(paymentPayload?: EnrollmentPaymentPayload, closeModalOnSuccess = true) {
     if (!token) {
@@ -297,6 +305,36 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     return `${"⭐".repeat(safeRating)}${"☆".repeat(5 - safeRating)}`;
   }
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)] pb-24">
+        <header className="px-6 py-8 lg:px-12 flex items-center justify-between">
+          <div className="h-5 w-36 bg-white rounded animate-pulse" />
+          <div className="flex items-center gap-4">
+            <div className="h-10 w-10 rounded-full bg-white animate-pulse" />
+            <div className="h-7 w-20 rounded bg-white animate-pulse" />
+          </div>
+        </header>
+        <main className="max-w-[1200px] mx-auto px-6 lg:px-12">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 lg:gap-24">
+            <div className="lg:col-span-7 space-y-6">
+              <div className="aspect-video bg-white rounded-3xl animate-pulse" />
+              <div className="h-12 w-2/3 bg-white rounded animate-pulse" />
+              <div className="h-4 w-full bg-white rounded animate-pulse" />
+              <div className="h-4 w-5/6 bg-white rounded animate-pulse" />
+            </div>
+            <div className="lg:col-span-5 bg-white border border-[var(--edge)] rounded-3xl p-8 space-y-4 h-fit">
+              <div className="h-6 w-40 bg-gray-100 rounded animate-pulse" />
+              <div className="h-4 w-full bg-gray-100 rounded animate-pulse" />
+              <div className="h-4 w-4/5 bg-gray-100 rounded animate-pulse" />
+              <div className="h-10 w-full bg-gray-100 rounded-full animate-pulse mt-6" />
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--ink)] pb-24">
       <header className="px-6 py-8 lg:px-12 flex items-center justify-between">
@@ -386,16 +424,23 @@ export default function CoursePage({ params }: { params: { courseId: string } })
             <section className="mt-10 bg-white border border-[var(--edge)] rounded-3xl p-6">
               <p className="mono-note">ratings and reviews</p>
               {token && isEnrolled ? (
-                <div className="mt-4 grid gap-3 md:grid-cols-[120px_1fr_auto]">
-                  <select
-                    className="rounded-xl border border-[var(--edge)] bg-white px-3 py-2"
-                    value={rating}
-                    onChange={(event) => setRating(Number(event.target.value))}
-                  >
-                    {[5, 4, 3, 2, 1].map((value) => (
-                      <option key={value} value={value}>{value} stars</option>
+                <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr_auto]">
+                  <div className="rounded-xl border border-[var(--edge)] bg-white px-3 py-2 flex items-center justify-center gap-1" role="radiogroup" aria-label="Select rating">
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setRating(value)}
+                        aria-label={`Rate ${value}`}
+                        aria-pressed={rating === value}
+                        className="p-0.5"
+                      >
+                        <Star
+                          className={`w-4 h-4 ${value <= rating ? "fill-amber-400 text-amber-400" : "text-[var(--edge)]"}`}
+                        />
+                      </button>
                     ))}
-                  </select>
+                  </div>
                   <input
                     className="rounded-xl border border-[var(--edge)] bg-white px-3 py-2 text-sm"
                     placeholder="Share your review"
@@ -538,8 +583,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                       });
                     }
                     if (response.certificate) {
-                      setCertificate(response.certificate);
-                      setShowCertificateModal(true);
+                      router.replace(`/courses/${params.courseId}/certificate`);
                     }
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "Failed to complete course");
@@ -575,14 +619,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                             <div className="p-4 bg-[var(--accent-blue)]/10 rounded-2xl border border-[var(--accent-blue)]/20 text-center">
                               <p className="font-heading text-sm font-bold text-[var(--accent-blue)]">Course Completed! 🎉</p>
                             </div>
-                            {certificate ? (
-                              <button
-                                onClick={() => setShowCertificateModal(true)}
-                                className="w-full rounded-xl border border-[var(--edge)] bg-white py-3 text-xs font-semibold hover:border-[var(--ink)] transition-colors"
-                              >
-                                View Certificate ({certificate.certificateCode})
-                              </button>
-                            ) : null}
                           </div>
                         )}
                       </div>
@@ -728,51 +764,6 @@ export default function CoursePage({ params }: { params: { courseId: string } })
 
         {error ? <p className="mt-6 text-sm text-red-600">{error}</p> : null}
       </main>
-
-      {showCertificateModal && certificate && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white rounded-[2rem] p-8 max-w-2xl w-full border border-[var(--edge)] shadow-2xl relative animate-in zoom-in-95 duration-300">
-            <button
-              onClick={() => setShowCertificateModal(false)}
-              className="absolute top-6 right-6 text-[var(--ink-soft)] hover:text-[var(--ink)]"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <div className="text-center border border-[var(--edge)] rounded-2xl p-8 bg-[#fffdf8]">
-              <p className="font-mono uppercase text-[10px] tracking-[0.24em] text-[var(--ink-soft)] mb-3">Certificate of Completion</p>
-              <h3 className="font-heading text-4xl mb-3">Learnova</h3>
-              <p className="text-sm text-[var(--ink-soft)] mb-6">This certifies that</p>
-              <p className="font-heading text-3xl mb-4">{certificate.learnerName}</p>
-              <p className="text-sm text-[var(--ink-soft)] mb-1">has successfully completed</p>
-              <p className="font-heading text-2xl mb-6">{certificate.courseTitle}</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                <div className="rounded-xl border border-[var(--edge)] bg-white px-4 py-3">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Certificate ID</p>
-                  <p className="text-sm font-semibold mt-1">{certificate.certificateCode}</p>
-                </div>
-                <div className="rounded-xl border border-[var(--edge)] bg-white px-4 py-3">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Issued At</p>
-                  <p className="text-sm font-semibold mt-1">{new Date(certificate.issuedAt).toLocaleDateString()}</p>
-                </div>
-                <div className="rounded-xl border border-[var(--edge)] bg-white px-4 py-3 md:col-span-2">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Instructor</p>
-                  <p className="text-sm font-semibold mt-1">{certificate.instructorName}</p>
-                </div>
-              </div>
-              <p className="mt-2 text-xs text-[var(--ink-soft)]">Issued by Learnova Academy as proof of successful completion.</p>
-            </div>
-
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => window.print()}
-                className="rounded-xl bg-[var(--ink)] text-white px-6 py-3 text-xs font-semibold hover:scale-[1.02] active:scale-[0.98] transition-transform"
-              >
-                Download / Print Certificate
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Message Modal */}
       {showMessageModal && (

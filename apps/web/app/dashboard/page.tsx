@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowRight, Award, BookOpen, Clock, TrendingUp, GraduationCap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowRight, Award, GraduationCap, LogOut } from "lucide-react";
 import { ProtectedPage } from "@/components/protected-page";
 import { NotificationBell } from "@/components/NotificationBell";
 import { UserProfileMenu } from "@/components/user-profile-menu";
 import { apiRequest } from "@/lib/api";
-import { getCurrentSession } from "@/lib/supabase-auth";
+import { getCurrentSession, signOutSession } from "@/lib/supabase-auth";
 
 type MeResponse = {
   user: {
@@ -25,10 +26,14 @@ type CourseSummary = {
   id: string;
   title: string;
   description: string | null;
+  accessRule: "OPEN" | "SIGNED_IN" | "PAYMENT" | "INVITATION";
+  price: number | null;
   published: boolean;
   tags: Array<{ id: string; tag: string }>;
+  enrolledAt: string;
   progressPercent: number;
   progressStatus: "YET_TO_START" | "IN_PROGRESS" | "COMPLETED";
+  certificateCode: string | null;
 };
 
 type CoursesResponse = {
@@ -55,10 +60,12 @@ type ProgressSummaryResponse = {
 };
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<MeResponse["user"]>(null);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [authoredCourses, setAuthoredCourses] = useState<AuthoredCourse[]>([]);
   const [summary, setSummary] = useState<ProgressSummaryResponse["summary"] | null>(null);
+  const [selectedTag, setSelectedTag] = useState<string>("ALL");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -96,7 +103,7 @@ export default function DashboardPage() {
 
           if (active) {
             setProfile(response.user);
-            setCourses(courseResponse.courses.slice(0, 3));
+            setCourses(courseResponse.courses);
             setSummary(progressSummary.summary);
           }
         }
@@ -119,6 +126,25 @@ export default function DashboardPage() {
   }, []);
 
   const roleLabel = profile?.role?.toLowerCase() ?? "workspace";
+  const allTags = useMemo(() => {
+    const tags = new Set<string>();
+    courses.forEach((course) => {
+      course.tags.forEach((tag) => tags.add(tag.tag));
+    });
+    return Array.from(tags).sort();
+  }, [courses]);
+
+  const filteredCourses = useMemo(() => {
+    if (selectedTag === "ALL") {
+      return courses;
+    }
+    return courses.filter((course) => course.tags.some((tag) => tag.tag === selectedTag));
+  }, [courses, selectedTag]);
+
+  async function onSignOut() {
+    await signOutSession();
+    router.replace("/login");
+  }
 
   if (isLoading) {
     return (
@@ -260,6 +286,11 @@ export default function DashboardPage() {
                (profile?.totalPoints ?? 0) < 100 ? "Expert" :
                "Master");
 
+  const completedCourses = filteredCourses.filter((course) => course.progressStatus === "COMPLETED");
+  const pendingCourses = filteredCourses.filter((course) => course.progressStatus !== "COMPLETED");
+  const pointsTarget = 120;
+  const pointsProgress = Math.min(((profile?.totalPoints ?? 0) / pointsTarget) * 100, 100);
+
   return (
     <ProtectedPage>
       <div className="max-w-[1400px] mx-auto px-6 py-12 lg:px-12 lg:py-16">
@@ -286,133 +317,155 @@ export default function DashboardPage() {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-          <div className="lg:col-span-8 flex flex-col gap-12">
+          <div className="lg:col-span-8 flex flex-col gap-8">
             <section>
-              <h1 className="font-heading text-5xl lg:text-7xl font-semibold leading-[1.1] text-[var(--ink)] mb-6">
-                {profile ? `Morning, ${profile.fullName}.` : "Welcome to your workspace."}
+              <h1 className="font-heading text-5xl lg:text-7xl font-semibold leading-[1.1] text-[var(--ink)] mb-4">
+                {profile ? `Morning, ${profile.fullName}.` : "Welcome."}
               </h1>
-              <p className="font-mono text-sm text-[var(--ink-soft)] max-w-md leading-relaxed">
-                Enrolled courses: {summary?.totalCourses ?? 0}. Active now: {summary?.inProgressCourses ?? 0}. Keep the streak moving.
+              <p className="font-mono text-sm text-[var(--ink-soft)] max-w-2xl leading-relaxed">
+                Track everything in one place: purchased and joined courses, what's completed, what's pending, and quick certificate downloads.
               </p>
             </section>
 
-            <section className="relative mt-8">
-              <div className="flex items-center justify-between mb-8">
-                <h2 className="font-heading text-2xl font-medium">Active Modules</h2>
+            <section className="bg-white/50 border border-white/60 rounded-3xl p-6 backdrop-blur-xl shadow-[0_12px_35px_-24px_rgba(26,28,41,0.35)]">
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <h2 className="font-heading text-2xl font-medium">Course Filters</h2>
                 <Link href="/courses" className="font-mono text-xs text-[var(--ink)] hover:text-[var(--accent-blue)] transition-colors flex items-center gap-1">
-                  View All <ArrowRight className="w-3 h-3" />
+                  Explore More <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
-                {courses.length > 0 ? courses.map((course, index) => (
-                  <Link
-                    key={course.id}
-                    href={`/courses/${course.id}`}
-                    className={`group bg-white p-6 rounded-2xl border border-[var(--edge)] hover:shadow-[0_20px_40px_-15px_rgba(26,28,41,0.05)] hover:-translate-y-1 transition-all duration-300 ${index % 2 === 0 ? "md:-translate-y-4" : ""}`}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setSelectedTag("ALL")}
+                  className={`px-3 py-1.5 rounded-full font-mono text-[10px] border transition-colors ${selectedTag === "ALL" ? "bg-[var(--ink)] text-white border-[var(--ink)]" : "bg-white border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--ink)]"}`}
+                >
+                  All Tags
+                </button>
+                {allTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setSelectedTag(tag)}
+                    className={`px-3 py-1.5 rounded-full font-mono text-[10px] border transition-colors ${selectedTag === tag ? "bg-[var(--ink)] text-white border-[var(--ink)]" : "bg-white border-[var(--edge)] text-[var(--ink-soft)] hover:border-[var(--ink)]"}`}
                   >
-                    <div className={`inline-block px-2 py-1 font-mono text-[10px] uppercase tracking-wider rounded mb-4 ${course.progressStatus === "IN_PROGRESS" ? "bg-[var(--accent-peach)]/20 text-[var(--ink)]" : "bg-[#f2f0eb] text-[var(--ink-soft)]"}`}>
-                      {course.progressStatus === "IN_PROGRESS" ? "In Progress" : course.progressStatus === "COMPLETED" ? "Completed" : "Next Up"}
-                    </div>
-                    <h3 className="font-heading text-2xl font-medium mb-3 group-hover:text-[var(--accent-blue)] transition-colors">{course.title}</h3>
-                    <p className="text-[var(--ink-soft)] text-sm mb-8 line-clamp-2">{course.description ?? "Continue your learning journey."}</p>
-                    <div className="flex items-center justify-between mt-auto">
-                      <div className="flex -space-x-2">
-                        <div className="w-6 h-6 rounded-full bg-[#f2f0eb] border-2 border-white flex items-center justify-center relative z-20"><BookOpen className="w-3 h-3 text-[var(--ink-soft)]" /></div>
-                        <div className="w-6 h-6 rounded-full bg-[#f2f0eb] border-2 border-white flex items-center justify-center relative z-10"><Clock className="w-3 h-3 text-[var(--ink-soft)]" /></div>
-                      </div>
-                      <span className="font-mono text-xs">{course.progressPercent}%</span>
-                    </div>
-                    <div className="relative w-full h-[2px] bg-[#f2f0eb] mt-3 rounded-full overflow-hidden">
-                      <div className="absolute top-0 left-0 h-full bg-[var(--ink)]" style={{ width: `${course.progressPercent}%` }} />
-                    </div>
-                  </Link>
-                )) : (
-                  <article className="bg-white p-6 rounded-2xl border border-[var(--edge)] md:col-span-2">
-                    <h3 className="font-heading text-2xl">No active modules yet</h3>
-                    <p className="text-[var(--ink-soft)] text-sm mt-2">Explore and enroll in a course to start your path.</p>
-                    <Link href="/courses" className="action-chip mt-4 inline-flex">Explore courses</Link>
-                  </article>
-                )}
+                    {tag}
+                  </button>
+                ))}
               </div>
+            </section>
+
+            <section className="bg-white/50 border border-white/60 rounded-3xl p-6 backdrop-blur-xl shadow-[0_12px_35px_-24px_rgba(26,28,41,0.35)]">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-heading text-2xl">Completed Courses</h3>
+                <span className="font-mono text-xs text-[var(--ink-soft)]">{completedCourses.length}</span>
+              </div>
+
+              {completedCourses.length === 0 ? (
+                <p className="text-sm text-[var(--ink-soft)]">No completed courses for this filter.</p>
+              ) : (
+                <div className="space-y-3">
+                  {completedCourses.map((course) => (
+                    <article key={course.id} className="rounded-2xl border border-white/70 p-4 bg-white/55 backdrop-blur-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-lg leading-tight">{course.title}</p>
+                        <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)] mt-1">
+                          {course.accessRule === "PAYMENT" ? `Purchased${course.price ? ` $${course.price}` : ""}` : "Joined"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Link href={`/courses/${course.id}`} className="text-xs font-semibold text-[var(--ink)] hover:text-[var(--accent-blue)] transition-colors">
+                          Open
+                        </Link>
+                        {course.certificateCode ? (
+                          <Link
+                            href={`/courses/${course.id}/certificate?download=1`}
+                            target="_blank"
+                            className="rounded-xl border border-[var(--edge)] bg-white px-3 py-2 text-[10px] font-semibold hover:border-[var(--ink)] transition-colors"
+                          >
+                            Download Certificate
+                          </Link>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="bg-white/50 border border-white/60 rounded-3xl p-6 backdrop-blur-xl shadow-[0_12px_35px_-24px_rgba(26,28,41,0.35)]">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="font-heading text-2xl">Pending Courses</h3>
+                <span className="font-mono text-xs text-[var(--ink-soft)]">{pendingCourses.length}</span>
+              </div>
+
+              {pendingCourses.length === 0 ? (
+                <p className="text-sm text-[var(--ink-soft)]">No pending courses for this filter.</p>
+              ) : (
+                <div className="space-y-3">
+                  {pendingCourses.map((course) => (
+                    <article key={course.id} className="rounded-2xl border border-white/70 p-4 bg-white/55 backdrop-blur-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-lg leading-tight">{course.title}</p>
+                        <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)] mt-1">
+                          {course.progressStatus === "IN_PROGRESS" ? "In Progress" : "Yet To Start"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-xs text-[var(--ink-soft)]">{course.progressPercent}%</span>
+                        <Link href={`/courses/${course.id}`} className="rounded-xl bg-[var(--ink)] text-white px-3 py-2 text-[10px] font-semibold hover:opacity-90 transition-opacity">
+                          Continue
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
 
           <div className="lg:col-span-4 lg:pl-8">
-            <div className="sticky top-12 flex flex-col gap-6">
-              <div className="bg-[var(--ink)] text-white p-8 rounded-3xl relative overflow-hidden shadow-2xl">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl" />
-                <h3 className="font-mono text-[10px] opacity-70 mb-6 tracking-widest uppercase">Badge Progression</h3>
-                
-                <div className="space-y-6">
-                  {/* Badge Progress Bar */}
-                  <div>
-                    <div className="flex justify-between items-end mb-2">
-                      <span className="font-heading text-4xl font-black">{profile?.totalPoints ?? 0} <span className="text-xs font-mono opacity-50 uppercase tracking-widest">Points</span></span>
-                      <span className="font-mono text-[10px] opacity-70 uppercase">Next Rank at {
-                        (profile?.totalPoints ?? 0) < 20 ? 20 : 
-                        (profile?.totalPoints ?? 0) < 40 ? 40 : 
-                        (profile?.totalPoints ?? 0) < 60 ? 60 : 
-                        (profile?.totalPoints ?? 0) < 80 ? 80 : 
-                        (profile?.totalPoints ?? 0) < 100 ? 100 : 120
-                      }</span>
-                    </div>
-                    <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-[var(--accent-blue)] to-[var(--accent-peach)] transition-all duration-1000"
-                        style={{ width: `${Math.min(((profile?.totalPoints ?? 0) / 120) * 100, 100)}%` }}
-                      />
+            <div className="sticky top-12 space-y-5">
+              <div className="rounded-3xl border border-[#EAE7E2] bg-[#F7F6F4] text-[#1E1E1E] p-6">
+                <p className="font-mono text-[11px] tracking-widest uppercase text-[#6B6B6B] mb-4">My Profile</p>
+                <div className="mx-auto w-[230px] h-[230px] rounded-full border border-[#EAE7E2] p-3 flex items-center justify-center">
+                  <div
+                    className="w-full h-full rounded-full p-3 flex items-center justify-center"
+                    style={{ background: `conic-gradient(#3B82F6 ${pointsProgress}%, #EAE7E2 ${pointsProgress}% 100%)` }}
+                  >
+                    <div className="w-full h-full rounded-full border border-[#EAE7E2] bg-[radial-gradient(circle_at_35%_35%,#FFFFFF,#EEF2FF)] flex flex-col items-center justify-center text-center px-6">
+                      <p className="text-[#6B6B6B] text-sm">Total {(profile?.totalPoints ?? 0)} Points</p>
+                      <p className="font-heading text-4xl mt-2 text-[#8B5CF6]">{rank}</p>
                     </div>
                   </div>
-
-                  {/* Badge Tiers */}
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { name: "Newbie", pts: 20 },
-                      { name: "Explorer", pts: 40 },
-                      { name: "Achiever", pts: 60 },
-                      { name: "Specialist", pts: 80 },
-                      { name: "Expert", pts: 100 },
-                      { name: "Master", pts: 120 }
-                    ].map((tier) => {
-                      const isUnlocked = (profile?.totalPoints ?? 0) >= tier.pts;
-                      return (
-                        <div 
-                          key={tier.name}
-                          className={`p-3 rounded-2xl border transition-all ${isUnlocked ? "bg-white/10 border-white/20" : "bg-black/20 border-white/5 opacity-40"}`}
-                        >
-                          <p className="font-heading text-[10px] font-bold mb-1 truncate">{tier.name}</p>
-                          <p className="font-mono text-[8px] opacity-50">{tier.pts}pts</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="mt-8 pt-6 border-t border-white/10 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-                    <TrendingUp className="w-4 h-4 text-[var(--accent-peach)]" />
-                  </div>
-                  <p className="text-[10px] font-mono opacity-70 leading-snug">
-                    Complete quizzes to earn points and climb the ranks.
-                  </p>
                 </div>
               </div>
 
-              <div className="bg-white border border-[var(--edge)] p-6 rounded-3xl">
-                <h3 className="font-mono text-xs text-[var(--ink-soft)] mb-6 tracking-widest uppercase">Profile</h3>
-                {profile ? (
-                  <ul className="flex flex-col gap-4 text-sm text-[var(--ink)]">
-                    <li className="border-b border-[var(--edge)]/60 pb-3">{profile.email}</li>
-                    <li className="border-b border-[var(--edge)]/60 pb-3">{profile.role}</li>
-                    <li>Member since {new Date(profile.createdAt).toLocaleDateString()}</li>
-                  </ul>
-                ) : (
-                  <p className="text-[var(--ink-soft)] text-sm">Loading profile...</p>
-                )}
+              <div className="bg-[#FFFFFF] rounded-3xl border border-[#EAE7E2] p-5 shadow-[0_12px_28px_-24px_rgba(30,30,30,0.18)]">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-[#6B6B6B]">Learner Summary</p>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl border border-[#EAE7E2] bg-[#F1EFEA] p-2">
+                    <p className="text-xl font-heading text-[#1E1E1E]">{summary?.totalCourses ?? 0}</p>
+                    <p className="font-mono text-[9px] text-[#A3A3A3] uppercase">Total</p>
+                  </div>
+                  <div className="rounded-xl border border-[#EAE7E2] bg-[#EEF2FF] p-2">
+                    <p className="text-xl font-heading text-[#3B82F6]">{completedCourses.length}</p>
+                    <p className="font-mono text-[9px] text-[#A3A3A3] uppercase">Done</p>
+                  </div>
+                  <div className="rounded-xl border border-[#EAE7E2] bg-[#F1EFEA] p-2">
+                    <p className="text-xl font-heading text-[#8B5CF6]">{pendingCourses.length}</p>
+                    <p className="font-mono text-[9px] text-[#A3A3A3] uppercase">Pending</p>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={onSignOut}
+                    className="text-xs font-semibold px-4 py-2.5 rounded-xl bg-[#1E1E1E] text-white hover:opacity-90 transition-opacity inline-flex items-center gap-1"
+                  >
+                    <LogOut className="w-3.5 h-3.5" /> Sign out
+                  </button>
+                </div>
               </div>
 
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
             </div>
           </div>
         </div>
