@@ -52,4 +52,8 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   return res.status(500).json({ message });
 });
 
-export default app;
+const handler: express.RequestHandler = (req, res, next) => {
+  app(req, res, next);
+};
+
+export default handler;
