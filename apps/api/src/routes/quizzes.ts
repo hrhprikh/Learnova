@@ -250,6 +250,7 @@ quizzesRouter.get("/quizzes/:quizId/take", requireAuth, async (req, res, next) =
     return res.status(200).json({
       quiz: {
         id: quiz.id,
+        lessonId: quiz.lessonId,
         title: quiz.title,
         totalQuestions: quiz.questions.length,
         nextAttemptNumber: attemptsCount + 1,

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Lock, PlayCircle, Mail, Star, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, PlayCircle, Mail, Star, X, ChevronDown, ChevronRight, FileText, HelpCircle, Video } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
@@ -22,6 +22,24 @@ type CourseResponse = {
       title: string;
       type: "VIDEO" | "DOCUMENT" | "IMAGE" | "QUIZ";
       quiz: { id: string; title: string } | null;
+      sectionId?: string | null;
+      durationSeconds?: number;
+    }>;
+  };
+  courseContent?: {
+    mode: "SECTIONED" | "FALLBACK";
+    sections: Array<{
+      id: string;
+      title: string;
+      isFallback?: boolean;
+      lessons: Array<{
+        id: string;
+        title: string;
+        type: "VIDEO" | "DOCUMENT" | "IMAGE" | "QUIZ";
+        quiz: { id: string; title: string } | null;
+        sectionId: string | null;
+        durationSeconds?: number;
+      }>;
     }>;
   };
   progress: {
@@ -65,6 +83,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const router = useRouter();
   const [course, setCourse] = useState<CourseResponse["course"] | null>(null);
   const [lessons, setLessons] = useState<CourseResponse["course"]["lessons"]>([]);
+  const [courseContent, setCourseContent] = useState<CourseResponse["courseContent"] | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [progress, setProgress] = useState<CourseResponse["progress"] | null>(null);
   const [reviews, setReviews] = useState<ReviewsResponse | null>(null);
@@ -83,6 +102,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
   const [isLoading, setIsLoading] = useState(true);
   const [paymentUiState, setPaymentUiState] = useState<"idle" | "processing" | "success">("idle");
   const [showPurchaseSuccess, setShowPurchaseSuccess] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let active = true;
@@ -111,6 +131,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         setIsOwner(courseResponse.isOwner);
         setCourse(courseResponse.course);
         setLessons(courseResponse.course.lessons);
+        setCourseContent(courseResponse.courseContent ?? null);
         setProgress(courseResponse.progress);
         setReviews(reviewsResponse);
         setIsLoading(false);
@@ -122,6 +143,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
         setError(loadError instanceof Error ? loadError.message : "Failed to load course");
         setCourse(null);
         setLessons([]);
+        setCourseContent(null);
         setProgress(null);
         setReviews(null);
         setIsLoading(false);
@@ -234,13 +256,49 @@ export default function CoursePage({ params }: { params: { courseId: string } })
     }
   }
 
-  const firstLessonId = lessons[0]?.id;
-  const completedLessons = progress?.completedLessons ?? 0;
-  const currentLessonIndex = Math.min(completedLessons, Math.max(lessons.length - 1, 0));
+  const groupedContent = (() => {
+    if (courseContent?.sections?.length) {
+      return courseContent.sections;
+    }
+    return [
+      {
+        id: "fallback-course-content",
+        title: "Course Content",
+        isFallback: true,
+        lessons
+      }
+    ];
+  })();
 
-  const filteredLessons = lessons.filter(lesson => 
-    lesson.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const flatLessons = groupedContent.flatMap((section) => section.lessons);
+  const firstLessonId = flatLessons[0]?.id;
+  const completedLessons = progress?.completedLessons ?? 0;
+  const currentLessonIndex = Math.min(completedLessons, Math.max(flatLessons.length - 1, 0));
+
+  const filteredGroupedContent = groupedContent
+    .map((section) => ({
+      ...section,
+      lessons: section.lessons.filter((lesson) => lesson.title.toLowerCase().includes(searchTerm.toLowerCase()))
+    }))
+    .filter((section) => section.lessons.length > 0);
+
+  useEffect(() => {
+    if (groupedContent.length === 0) {
+      return;
+    }
+
+    setExpandedSections((prev) => {
+      const next: Record<string, boolean> = {};
+      for (let index = 0; index < groupedContent.length; index += 1) {
+        const section = groupedContent[index];
+        if (!section) {
+          continue;
+        }
+        next[section.id] = prev[section.id] ?? index === 0;
+      }
+      return next;
+    });
+  }, [groupedContent]);
 
   function renderStars(ratingValue: number): string {
     const safeRating = Math.max(0, Math.min(5, Math.round(ratingValue)));
@@ -307,7 +365,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
 
             <div className="flex flex-wrap items-center gap-6 font-mono text-sm text-[var(--ink-soft)] mb-12 pb-12 border-b border-[var(--edge)]">
               <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[var(--accent-blue)]" /> {progress?.totalLessons ?? 0} Lessons</span>
-              <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[var(--accent-peach)]" /> {lessons.filter((l) => l.type === "QUIZ").length} Quizzes</span>
+              <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-[var(--accent-peach)]" /> {flatLessons.filter((l) => l.type === "QUIZ").length} Quizzes</span>
               <span>{progress?.completionPercent ?? 0}% complete</span>
               <div className="flex gap-2">
                 {course?.tags.map(t => <span key={t.id} className="px-2 py-0.5 rounded-full bg-white border border-[var(--edge)] text-[10px]">{t.tag}</span>)}
@@ -419,8 +477,8 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                 </div>
                 <div className="text-right">
                   <span className="font-mono flex items-center gap-1 text-sm">
-                    <span className="text-[var(--accent-blue)]">{Math.min(completedLessons + 1, lessons.length || 1)}</span>
-                    <span className="text-[var(--ink-soft)]">/ {lessons.length || 0}</span>
+                    <span className="text-[var(--accent-blue)]">{Math.min(completedLessons + 1, flatLessons.length || 1)}</span>
+                    <span className="text-[var(--ink-soft)]">/ {flatLessons.length || 0}</span>
                   </span>
                 </div>
               </div>
@@ -439,49 +497,74 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                  </div>
               </div>
 
-              <ul className="flex flex-col relative before:absolute before:inset-y-0 before:left-3.5 before:w-px before:bg-[var(--edge)]/60 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
-                {filteredLessons.map((lesson) => {
-                  const realIndex = lessons.findIndex(l => l.id === lesson.id);
-                  const isCompleted = realIndex < completedLessons;
-                  const isCurrent = realIndex === currentLessonIndex;
-                  const isLocked = !isEnrolled && !isOwner && realIndex > currentLessonIndex + 1;
+              <div className="space-y-3 max-h-[55vh] overflow-y-auto custom-scrollbar pr-1">
+                {filteredGroupedContent.map((section, sectionIndex) => {
+                  const isExpanded = expandedSections[section.id] ?? sectionIndex === 0;
 
                   return (
-                    <li
-                      key={lesson.id}
-                      className={`relative pl-10 py-5 border-b border-[var(--edge)]/40 last:border-0 group ${isCurrent ? "bg-[#f2f0eb] -mx-4 px-4 pr-0 rounded-lg" : ""} ${isLocked ? "opacity-60" : "hover:bg-white transition-colors cursor-pointer"}`}
-                    >
-                      {!isLocked ? (
-                        <Link href={`/learn/${params.courseId}/${lesson.id}`} className="absolute inset-0 z-20" aria-label={`Open ${lesson.title}`} />
-                      ) : null}
-                      <div className={`absolute left-2.5 top-6 rounded-full ring-4 -translate-x-1/2 z-10 ${isCompleted ? "w-2.5 h-2.5 bg-[var(--ink)] ring-white" : isCurrent ? "w-3 h-3 bg-[var(--accent-peach)] ring-[#f2f0eb]" : "w-2 h-2 border border-[var(--ink-soft)] bg-white ring-white"}`} />
-                      <div className={`${isCurrent ? "pl-6" : ""}`}>
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <span className={`font-mono text-[10px] tracking-wider block mb-1 ${isCurrent ? "text-[var(--accent-peach)]" : "text-[var(--ink-soft)]"}`}>
-                              SECTION {String(realIndex + 1).padStart(2, "0")}{isCurrent ? " (Current)" : ""}
-                            </span>
-                            <h4 className={`font-medium text-sm relative z-10 ${isLocked ? "text-[var(--ink-soft)]" : "text-[var(--ink)] group-hover:text-[var(--accent-blue)] transition-colors"}`}>{lesson.title}</h4>
+                    <section key={section.id} className="rounded-2xl border border-[var(--edge)] bg-[#fcfbfa] overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedSections((prev) => ({ ...prev, [section.id]: !isExpanded }))}
+                        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {isExpanded ? <ChevronDown className="w-4 h-4 text-[var(--ink-soft)]" /> : <ChevronRight className="w-4 h-4 text-[var(--ink-soft)]" />}
+                          <div className="min-w-0">
+                            <p className="font-heading text-base truncate">{section.title}</p>
+                            <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">
+                              Chapter {String(sectionIndex + 1).padStart(2, "0")}
+                            </p>
                           </div>
-                          {isCompleted ? (
-                            <CheckCircle2 className="w-5 h-5 text-[var(--accent-blue)] opacity-80" />
-                          ) : isCurrent ? (
-                            <PlayCircle className="w-5 h-5 text-[var(--accent-peach)]" />
-                          ) : isLocked ? (
-                            <Lock className="w-4 h-4 text-[var(--ink-soft)] mt-0.5" />
-                          ) : null}
                         </div>
-                        {!isLocked ? (
-                          <span className="floating-link mt-3 inline-flex relative z-10 opacity-70 group-hover:opacity-100 transition-opacity text-[10px]">Open lesson</span>
-                        ) : null}
-                      </div>
-                    </li>
+                        <div className="text-right text-[var(--ink-soft)] font-mono text-[11px] whitespace-nowrap">
+                          {section.lessons.length} lessons
+                        </div>
+                      </button>
+
+                      {isExpanded ? (
+                        <div className="border-t border-[var(--edge)] bg-white">
+                          {section.lessons.map((lesson) => {
+                            const realIndex = flatLessons.findIndex((l) => l.id === lesson.id);
+                            const isCompleted = realIndex < completedLessons;
+                            const isCurrent = realIndex === currentLessonIndex;
+                            const isLocked = !isEnrolled && !isOwner && realIndex > currentLessonIndex + 1;
+
+                            return (
+                              <div
+                                key={lesson.id}
+                                className={`relative px-4 py-3 border-b border-[var(--edge)]/50 last:border-b-0 ${isCurrent ? "bg-[#f2f0eb]" : ""} ${isLocked ? "opacity-60" : "hover:bg-[#fcfbfa]"}`}
+                              >
+                                {!isLocked ? (
+                                  <Link href={`/learn/${params.courseId}/${lesson.id}`} className="absolute inset-0 z-20" aria-label={`Open ${lesson.title}`} />
+                                ) : null}
+                                <div className="relative z-10 flex items-start gap-3">
+                                  <div className="mt-0.5 text-[var(--ink-soft)]">
+                                    {lesson.type === "VIDEO" ? <Video className="w-4 h-4" /> : lesson.type === "QUIZ" ? <HelpCircle className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className={`text-sm truncate ${isLocked ? "text-[var(--ink-soft)]" : "text-[var(--ink)]"}`}>{lesson.title}</p>
+                                    <div className="mt-1 flex items-center gap-2 text-[10px] font-mono uppercase tracking-wide text-[var(--ink-soft)]">
+                                      <span>Lesson {String(realIndex + 1).padStart(2, "0")}</span>
+                                      {isCurrent ? <span className="text-[var(--accent-peach)]">Current</span> : null}
+                                    </div>
+                                  </div>
+                                  <div className="text-[var(--ink-soft)] mt-0.5">
+                                    {isCompleted ? <CheckCircle2 className="w-4 h-4 text-[var(--accent-blue)]" /> : isCurrent ? <PlayCircle className="w-4 h-4 text-[var(--accent-peach)]" /> : isLocked ? <Lock className="w-4 h-4" /> : null}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </section>
                   );
                 })}
-                {filteredLessons.length === 0 && (
-                   <div className="py-12 text-center text-[var(--ink-soft)] font-mono text-[10px]">No lessons match your search</div>
+                {filteredGroupedContent.length === 0 && (
+                  <div className="py-12 text-center text-[var(--ink-soft)] font-mono text-[10px]">No lessons match your search</div>
                 )}
-              </ul>
+              </div>
 
               {(() => {
                 async function handleComplete() {
@@ -577,7 +660,7 @@ export default function CoursePage({ params }: { params: { courseId: string } })
                     <span className="font-heading text-xl font-bold">${course?.price ?? "19.99"}</span>
                  </div>
                  <div className="text-[10px] text-[var(--ink-soft)] leading-relaxed">
-                    By purchasing, you get lifetime access to all {lessons.length} lessons, attachments, and quizzes within this learning module.
+                    By purchasing, you get lifetime access to all {flatLessons.length} lessons, attachments, and quizzes within this learning module.
                  </div>
               </div>
 
