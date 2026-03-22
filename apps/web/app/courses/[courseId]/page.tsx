@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, Lock, PlayCircle, Mail, Star, X, ChevronDown, ChevronRight, FileText, HelpCircle, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, PlayCircle, Mail, X, ChevronDown, ChevronRight, FileText, HelpCircle, Video } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";

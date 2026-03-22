@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Plus, Eye, BarChart2, Share2, Layout, Grid, Search, Clock, BookOpen, Users } from "lucide-react";
+import { Plus, Eye, BarChart2, Share2, Layout, Grid, Search, Clock, BookOpen, Users, Trash2 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { RoleGate } from "@/components/role-gate";
 import { apiRequest } from "@/lib/api";
@@ -51,6 +51,7 @@ export default function BackofficePage() {
   const [newTags, setNewTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
 
   function addTag(rawTag: string) {
     const tag = rawTag.trim().toLowerCase();
@@ -147,6 +148,26 @@ export default function BackofficePage() {
     }
   }
 
+  async function deleteCourse(courseId: string) {
+    if (!token) return;
+    const confirmed = window.confirm("Delete this course permanently? This cannot be undone.");
+    if (!confirmed) return;
+
+    setActionError(null);
+    setDeletingCourseId(courseId);
+    try {
+      await apiRequest(`/courses/${courseId}`, {
+        method: "DELETE",
+        token
+      });
+      setCourses((previous) => previous.filter((course) => course.id !== courseId));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not delete course");
+    } finally {
+      setDeletingCourseId(null);
+    }
+  }
+
   useEffect(() => {
     if (!token) return;
     refreshCourses().catch((error) => {
@@ -187,6 +208,13 @@ export default function BackofficePage() {
         <div className="flex gap-2 md:flex-col md:items-end">
           <button onClick={() => copyShareLink(course.id)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-all" title="Share Course">
             <Share2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => deleteCourse(course.id)}
+            disabled={deletingCourseId === course.id}
+            className="text-[10px] font-bold px-3 py-1.5 rounded-lg border text-red-700 bg-red-50 border-red-100 hover:bg-red-100 disabled:opacity-60 transition-all"
+          >
+            {deletingCourseId === course.id ? "Deleting..." : "Delete"}
           </button>
           <button
             onClick={() => togglePublish(course.id, !course.published)}
@@ -373,6 +401,14 @@ export default function BackofficePage() {
                               <BarChart2 className="w-3.5 h-3.5" />
                             </Link>
                             <Link href={`/backoffice/courses/${course.id}`} className="px-3 py-1.5 border border-[var(--edge)] rounded-lg hover:border-[var(--ink)] transition-all font-bold">Edit</Link>
+                            <button
+                              onClick={() => deleteCourse(course.id)}
+                              disabled={deletingCourseId === course.id}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-red-100 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-60 transition-all font-bold"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              {deletingCourseId === course.id ? "Deleting..." : "Delete"}
+                            </button>
                           </div>
                         </td>
                       </tr>

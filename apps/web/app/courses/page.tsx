@@ -227,7 +227,7 @@ export default function ExploreCoursesPage() {
               return (
                 <article
                   key={course.id}
-                  className="group bg-white rounded-[2.5rem] border border-[var(--edge)] overflow-hidden hover:shadow-[0_40px_80px_-20px_rgba(0,0,0,0.08)] transition-all duration-500 flex flex-col"
+                  className="group bg-white rounded-[2rem] border border-[var(--edge)] overflow-hidden hover:shadow-[0_24px_48px_-22px_rgba(0,0,0,0.16)] transition-all duration-300 flex flex-col"
                 >
                   <div className="aspect-[16/9] relative overflow-hidden bg-gray-100">
                     {course.imageUrl ? (
@@ -235,36 +235,47 @@ export default function ExploreCoursesPage() {
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[var(--ink-soft)] font-mono text-[10px]">No Preview</div>
                     )}
-                    <div className="absolute top-4 left-4 flex gap-2">
+                    <div className="absolute top-4 left-4 flex flex-wrap gap-2.5 pr-4">
                       {course.tags.slice(0, 2).map((tag) => (
-                        <span key={tag.id} className="px-3 py-1 bg-white/90 backdrop-blur-sm shadow-sm rounded-full font-mono text-[9px] uppercase tracking-wider text-[var(--ink)]">
+                        <span key={tag.id} className="px-4 py-1.5 bg-white/90 backdrop-blur-sm shadow-sm rounded-full font-mono text-xs uppercase tracking-wider text-[var(--ink)] font-semibold">
                           {tag.tag}
                         </span>
                       ))}
-                      <span className={`px-3 py-1 backdrop-blur-sm shadow-sm rounded-full font-mono text-[9px] uppercase tracking-widest font-bold ${course.accessRule === 'PAYMENT' ? 'bg-[var(--accent-peach)] text-white' : 'bg-white/90 text-[var(--ink)]'}`}>
+                      <span className={`px-4 py-1.5 backdrop-blur-sm shadow-sm rounded-full font-mono text-xs uppercase tracking-widest font-bold ${course.accessRule === 'PAYMENT' ? 'bg-[var(--accent-peach)] text-white' : 'bg-white/90 text-[var(--ink)]'}`}>
                         {course.accessRule === 'PAYMENT' ? `$${course.price}` : 'Free'}
                       </span>
                     </div>
                   </div>
 
-                  <div className="p-8 flex-1 flex flex-col">
+                  <div className="p-7 lg:p-8 flex-1 flex flex-col">
                     <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--accent-peach)] mb-3">{course.instructorName}</p>
                     <h3 className="font-heading text-2xl font-semibold mb-3 leading-tight group-hover:text-[var(--accent-blue)] transition-colors">{course.title}</h3>
-                    <p className="text-[var(--ink-soft)] text-sm mb-8 line-clamp-2 leading-relaxed">{course.description ?? "Embark on this learning journey to master new skills and perspectives."}</p>
+                    <p className="text-[var(--ink-soft)] text-sm mb-7 line-clamp-2 leading-relaxed min-h-[3rem]">{course.description ?? "Embark on this learning journey to master new skills and perspectives."}</p>
                     
-                    <div className="mt-auto pt-6 border-t border-[var(--edge)]/50 flex items-center justify-between">
-                      <div className="flex items-center gap-4 text-[var(--ink-soft)] font-mono text-[10px]">
-                        <span>{course.lessonCount} Lessons</span>
-                        <span>{Math.round(course.durationSeconds / 60)}m</span>
+                    <div className="mt-auto pt-5 border-t border-[var(--edge)]/60 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-4 text-[var(--ink-soft)] font-mono text-xs">
+                        <span>{course.lessonCount} lessons</span>
+                        <span>{Math.round(course.durationSeconds / 60)} min</span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <Link href={`/courses/${course.id}`} className="text-[var(--ink)] text-xs font-bold hover:underline transition-all">Details</Link>
+                      <div className="flex items-center gap-2.5">
+                        <Link
+                          href={`/courses/${course.id}`}
+                          className="inline-flex h-10 px-4 items-center justify-center rounded-xl border border-[#D9D7D2] text-sm font-semibold text-[var(--ink)] hover:border-[var(--ink)] hover:bg-[#F6F5F2] transition-colors"
+                        >
+                          View details
+                        </Link>
                         {status ? (
-                          <Link href={`/courses/${course.id}`} className="bg-[var(--ink)] text-white px-5 py-2.5 rounded-full text-[10px] font-bold shadow-lg hover:scale-105 active:scale-95 transition-all">
-                            {status === "IN_PROGRESS" ? "Continue" : status === "COMPLETED" ? "Review" : "Start"}
+                          <Link
+                            href={`/courses/${course.id}`}
+                            className="inline-flex h-10 px-5 items-center justify-center rounded-xl bg-[var(--ink)] text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+                          >
+                            {status === "IN_PROGRESS" ? "Continue" : status === "COMPLETED" ? "Review" : "Start now"}
                           </Link>
                         ) : (
-                          <button onClick={() => onEnroll(course.id)} className="bg-[var(--ink)] text-white px-5 py-2.5 rounded-full text-[10px] font-bold shadow-lg hover:scale-105 active:scale-95 transition-all">
+                          <button
+                            onClick={() => onEnroll(course.id)}
+                            className="inline-flex h-10 px-5 items-center justify-center rounded-xl bg-[var(--ink)] text-white text-sm font-semibold hover:opacity-90 transition-opacity"
+                          >
                             {sessionToken ? "Join" : "Login"}
                           </button>
                         )}

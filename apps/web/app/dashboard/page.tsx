@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Award, GraduationCap, LogOut } from "lucide-react";
+import { ArrowRight, Award, GraduationCap, LogOut, Trash2 } from "lucide-react";
 import { ProtectedPage } from "@/components/protected-page";
 import { NotificationBell } from "@/components/NotificationBell";
 import { UserProfileMenu } from "@/components/user-profile-menu";
@@ -68,6 +68,8 @@ export default function DashboardPage() {
   const [selectedTag, setSelectedTag] = useState<string>("ALL");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(null);
+  const [deletingCourseId, setDeletingCourseId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -78,6 +80,10 @@ export default function DashboardPage() {
         const token = data.session?.access_token;
         if (!token) {
           throw new Error("No active session found.");
+        }
+
+        if (active) {
+          setToken(token);
         }
 
         const response = await apiRequest<MeResponse>("/users/me", {
@@ -146,6 +152,26 @@ export default function DashboardPage() {
     router.replace("/login");
   }
 
+  async function onDeleteAuthoredCourse(courseId: string) {
+    if (!token) return;
+    const confirmed = window.confirm("Delete this course permanently? This cannot be undone.");
+    if (!confirmed) return;
+
+    try {
+      setDeletingCourseId(courseId);
+      setError(null);
+      await apiRequest(`/courses/${courseId}`, {
+        method: "DELETE",
+        token
+      });
+      setAuthoredCourses((previous) => previous.filter((course) => course.id !== courseId));
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete course");
+    } finally {
+      setDeletingCourseId(null);
+    }
+  }
+
   if (isLoading) {
     return (
       <ProtectedPage>
@@ -210,22 +236,48 @@ export default function DashboardPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
                   {authoredCourses.length > 0 ? authoredCourses.slice(0, 4).map((course) => (
-                    <Link
+                    <article
                       key={course.id}
-                      href={`/backoffice/courses/${course.id}`}
+                      onClick={() => router.push(`/backoffice/courses/${course.id}`)}
                       className="group bg-white p-6 rounded-2xl border border-[var(--edge)] hover:shadow-[0_20px_40px_-15px_rgba(26,28,41,0.05)] hover:-translate-y-1 transition-all duration-300 h-full flex flex-col"
                     >
                       <div className={`inline-block px-2 py-1 font-mono text-[10px] uppercase tracking-wider rounded mb-4 ${course.published ? "bg-[#f2f0eb] text-[var(--ink-soft)]" : "bg-[var(--accent-peach)]/20 text-[var(--ink)]"}`}>
                         {course.published ? "Published" : "Draft"}
                       </div>
-                      <h3 className="font-heading text-2xl font-medium mb-3 group-hover:text-[var(--accent-blue)] transition-colors">{course.title}</h3>
+                      <Link
+                        href={`/backoffice/courses/${course.id}`}
+                        className="block"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <h3 className="font-heading text-2xl font-medium mb-3 group-hover:text-[var(--accent-blue)] transition-colors">{course.title}</h3>
+                      </Link>
                       <p className="text-[var(--ink-soft)] text-sm mb-8 line-clamp-2 min-h-[2.5rem]">{course.description ?? "No description"}</p>
 
                       <div className="mt-auto border-t border-[var(--edge)]/40 pt-4 flex items-center justify-between font-mono text-xs text-[var(--ink-soft)]">
                         <span>{course.attendeesCount ?? 0} Students</span>
                         <span>{course.attendeesCount ? Math.round(((course.completedCount ?? 0) / course.attendeesCount) * 100) : 0}% Graduated</span>
                       </div>
-                    </Link>
+                      <div className="mt-3 flex items-center justify-end gap-2">
+                        <Link
+                          href={`/backoffice/courses/${course.id}`}
+                          className="text-xs font-semibold px-3 py-2 rounded-lg border border-[var(--edge)] hover:border-[var(--ink)] transition-colors"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          Manage
+                        </Link>
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onDeleteAuthoredCourse(course.id);
+                          }}
+                          disabled={deletingCourseId === course.id}
+                          className="text-xs font-semibold px-3 py-2 rounded-lg border border-red-100 bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-60 transition-colors inline-flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {deletingCourseId === course.id ? "Deleting..." : "Delete"}
+                        </button>
+                      </div>
+                    </article>
                   )) : (
                     <article className="bg-white p-6 rounded-2xl border border-[var(--edge)] md:col-span-2">
                       <h3 className="font-heading text-2xl">No modules built yet</h3>
