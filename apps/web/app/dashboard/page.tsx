@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Award, BookOpen, Clock, GraduationCap, LogOut } from "lucide-react";
+import { ArrowRight, Award, GraduationCap, LogOut } from "lucide-react";
 import { ProtectedPage } from "@/components/protected-page";
 import { NotificationBell } from "@/components/NotificationBell";
 import { UserProfileMenu } from "@/components/user-profile-menu";
