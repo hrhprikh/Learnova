@@ -1,7 +1,7 @@
 import cors from "cors";
 import express from "express";
+import helmetImport from "helmet";
 import morgan from "morgan";
-import { createRequire } from "node:module";
 import { ZodError } from "zod";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
@@ -15,9 +15,11 @@ import { reportsRouter } from "./routes/reports.js";
 import { notificationsRouter } from "./routes/notifications.js";
 
 export const app = express();
-
-const require = createRequire(import.meta.url);
-const helmet = require("helmet") as () => express.RequestHandler;
+const helmet =
+  typeof helmetImport === "function"
+    ? helmetImport
+    : ((helmetImport as unknown as { default?: () => express.RequestHandler }).default ??
+      (() => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next()));
 
 app.use(helmet());
 app.use(cors());
