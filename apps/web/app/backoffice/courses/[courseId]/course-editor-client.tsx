@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle, Eye, Settings, Share2, Tag, Users, Mail } from "lucide-react";
+import { ArrowLeft, Video, FileText, Image as ImageIcon, HelpCircle, Plus, Edit2, Trash2, X, Link as LinkIcon, Paperclip, Clock, User as UserIcon, Type, FileUp, Globe, CheckCircle2, Circle, Eye, Settings, Share2, Tag, Users, Mail, ChevronUp, ChevronDown } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { apiRequest } from "@/lib/api";
 import { getCurrentSession } from "@/lib/supabase-auth";
@@ -18,6 +18,7 @@ type Lesson = {
     title: string;
     description: string | null;
     type: "VIDEO" | "DOCUMENT" | "IMAGE" | "QUIZ";
+    sectionId?: string | null;
     durationSeconds: number;
     videoUrl?: string | null;
     fileUrl?: string | null;
@@ -31,6 +32,13 @@ type Instructor = {
     id: string;
     fullName: string;
     role: string;
+};
+
+type CourseSection = {
+    id: string;
+    courseId: string;
+    title: string;
+    orderIndex: number;
 };
 
 type CourseDetail = {
@@ -74,6 +82,9 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
     // Attendees state
     type AttendeeItem = { id: string; userId: string; fullName: string; email: string; enrolledAt: string };
     const [attendees, setAttendees] = useState<AttendeeItem[]>([]);
+    const [sections, setSections] = useState<CourseSection[]>([]);
+    const [newSectionTitle, setNewSectionTitle] = useState("");
+    const [isSavingSection, setIsSavingSection] = useState(false);
     const [inviteEmail, setInviteEmail] = useState("");
     const [attendeeMsg, setAttendeeMsg] = useState<string | null>(null);
     const [isInviting, setIsInviting] = useState(false);
@@ -86,6 +97,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
     const [isSendingMail, setIsSendingMail] = useState(false);
     const [activeTab, setActiveTab] = useState<"CONTENT" | "DESCRIPTION" | "ATTACHMENTS" | "QUESTIONS">("CONTENT");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isReorderingLessons, setIsReorderingLessons] = useState(false);
     const [isTogglingPublish, setIsTogglingPublish] = useState(false);
     const [publishError, setPublishError] = useState<string | null>(null);
 
@@ -93,6 +105,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
     const [lessonForm, setLessonForm] = useState({
         title: "",
         type: "VIDEO" as Lesson["type"],
+        sectionId: "",
         description: "",
         durationSeconds: 0,
         videoUrl: "",
@@ -120,8 +133,10 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 setToken(t);
 
                 const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token: t });
+                const sectionResponse = await apiRequest<{ sections: CourseSection[] }>(`/courses/${params.courseId}/sections`, { token: t });
                 if (active) {
                     setCourse(response.course);
+                    setSections(sectionResponse.sections);
                     setCourseForm({
                         title: response.course.title,
                         description: response.course.description || "",
@@ -147,6 +162,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
         setLessonForm({
             title: "",
             type: "VIDEO",
+            sectionId: sections[0]?.id ?? "",
             description: "",
             durationSeconds: 0,
             videoUrl: "",
@@ -168,11 +184,158 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
         setDidAutoOpenLesson(true);
     }, [course, didAutoOpenLesson, searchParams]);
 
+    async function refreshCourseAndSections(activeToken?: string) {
+        const authToken = activeToken ?? token;
+        if (!authToken) {
+            return null;
+        }
+        const [courseResponse, sectionsResponse] = await Promise.all([
+            apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token: authToken }),
+            apiRequest<{ sections: CourseSection[] }>(`/courses/${params.courseId}/sections`, { token: authToken })
+        ]);
+        setCourse(courseResponse.course);
+        setSections(sectionsResponse.sections);
+        return { course: courseResponse.course, sections: sectionsResponse.sections };
+    }
+
+    async function createSection() {
+        if (!token || !newSectionTitle.trim()) return;
+        setIsSavingSection(true);
+        try {
+            await apiRequest(`/courses/${params.courseId}/sections`, {
+                method: "POST",
+                token,
+                body: { title: newSectionTitle.trim() }
+            });
+            setNewSectionTitle("");
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to create chapter");
+        } finally {
+            setIsSavingSection(false);
+        }
+    }
+
+    async function renameSection(section: CourseSection) {
+        if (!token) return;
+        const nextTitle = prompt("Rename chapter", section.title);
+        if (!nextTitle || !nextTitle.trim() || nextTitle.trim() === section.title) return;
+        try {
+            await apiRequest(`/courses/${params.courseId}/sections/${section.id}`, {
+                method: "PATCH",
+                token,
+                body: { title: nextTitle.trim() }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to rename chapter");
+        }
+    }
+
+    async function deleteSection(section: CourseSection) {
+        if (!token) return;
+        if (!confirm(`Delete chapter "${section.title}"? Lessons will be moved to Uncategorized.`)) return;
+        try {
+            await apiRequest(`/courses/${params.courseId}/sections/${section.id}`, {
+                method: "DELETE",
+                token
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to delete chapter");
+        }
+    }
+
+    async function moveSection(sectionId: string, direction: "up" | "down") {
+        if (!token) return;
+        const currentIndex = sections.findIndex((section) => section.id === sectionId);
+        if (currentIndex < 0) return;
+
+        const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+        if (targetIndex < 0 || targetIndex >= sections.length) return;
+
+        const reordered = [...sections];
+        const [moved] = reordered.splice(currentIndex, 1);
+        if (!moved) return;
+        reordered.splice(targetIndex, 0, moved);
+
+        try {
+            setIsSavingSection(true);
+            await apiRequest(`/courses/${params.courseId}/sections/reorder`, {
+                method: "PATCH",
+                token,
+                body: { sectionIds: reordered.map((section) => section.id) }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to reorder chapters");
+        } finally {
+            setIsSavingSection(false);
+        }
+    }
+
+    async function moveLessonWithinGroup(groupLessonIds: string[], lessonId: string, direction: "up" | "down") {
+        if (!token || !course) return;
+
+        const groupIndex = groupLessonIds.findIndex((id) => id === lessonId);
+        if (groupIndex < 0) return;
+
+        const targetGroupIndex = direction === "up" ? groupIndex - 1 : groupIndex + 1;
+        if (targetGroupIndex < 0 || targetGroupIndex >= groupLessonIds.length) return;
+
+        const swapWithLessonId = groupLessonIds[targetGroupIndex];
+        if (!swapWithLessonId) return;
+
+        const lessonIds = course.lessons.map((lesson) => lesson.id);
+        const sourceIndex = lessonIds.findIndex((id) => id === lessonId);
+        const targetIndex = lessonIds.findIndex((id) => id === swapWithLessonId);
+        if (sourceIndex < 0 || targetIndex < 0) return;
+
+        const sourceLessonId = lessonIds[sourceIndex];
+        const targetLessonId = lessonIds[targetIndex];
+        if (!sourceLessonId || !targetLessonId) return;
+
+        lessonIds[sourceIndex] = targetLessonId;
+        lessonIds[targetIndex] = sourceLessonId;
+
+        try {
+            setIsReorderingLessons(true);
+            await apiRequest(`/courses/${params.courseId}/lessons/reorder`, {
+                method: "PATCH",
+                token,
+                body: { lessonIds }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to reorder lessons");
+        } finally {
+            setIsReorderingLessons(false);
+        }
+    }
+
+    async function moveLessonToSection(lessonId: string, sectionId: string | null) {
+        if (!token) return;
+        try {
+            setIsReorderingLessons(true);
+            await apiRequest(`/lessons/${lessonId}`, {
+                method: "PATCH",
+                token,
+                body: { sectionId }
+            });
+            await refreshCourseAndSections(token);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : "Failed to move lesson to chapter");
+        } finally {
+            setIsReorderingLessons(false);
+        }
+    }
+
     function openEditLesson(lesson: Lesson) {
         setEditingLessonId(lesson.id);
         setLessonForm({
             title: lesson.title,
             type: lesson.type,
+            sectionId: lesson.sectionId || "",
             description: lesson.description || "",
             durationSeconds: lesson.durationSeconds,
             videoUrl: lesson.videoUrl || "",
@@ -190,6 +353,12 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
     async function handleSaveLesson(e: React.FormEvent) {
         e.preventDefault();
         if (!token || !lessonForm.title.trim()) return;
+
+        if (!editingLessonId && sections.length > 0 && !lessonForm.sectionId) {
+            setError("Please select a chapter for this lesson.");
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             const method = editingLessonId ? "PATCH" : "POST";
@@ -203,6 +372,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 body: {
                     title: lessonForm.title.trim(),
                     type: lessonForm.type,
+                    sectionId: lessonForm.sectionId || null,
                     description: lessonForm.description || null,
                     durationSeconds: Number(lessonForm.durationSeconds) || 0,
                     videoUrl: lessonForm.videoUrl || null,
@@ -231,9 +401,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 }
             }
             
-            // Refresh course
-            const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
-            setCourse(response.course);
+            await refreshCourseAndSections(token);
             setShowLessonPopup(false);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to save lesson");
@@ -247,9 +415,7 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
         if (!token) return;
         try {
             await apiRequest(`/lessons/${id}`, { method: "DELETE", token });
-            // Refresh
-            const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
-            setCourse(response.course);
+            await refreshCourseAndSections(token);
         } catch {
             alert("Failed to delete lesson");
         }
@@ -271,12 +437,10 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 body
             });
             
-            // Refresh lesson data (for simplicity, refresh entire course)
-            const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
-            setCourse(response.course);
+            const refreshed = await refreshCourseAndSections(token);
             
             // Update local attachments
-            const updatedLesson = response.course.lessons.find(l => l.id === editingLessonId);
+            const updatedLesson = refreshed?.course.lessons.find(l => l.id === editingLessonId);
             if (updatedLesson) setAttachments(updatedLesson.attachments || []);
             
             setAttachmentForm({ label: "", url: "" });
@@ -292,12 +456,8 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
         if (!token || !confirm("Remove this attachment?")) return;
         try {
             await apiRequest(`/attachments/${attachmentId}`, { method: "DELETE", token });
-            
-            // Refresh
-            const response = await apiRequest<{ course: CourseDetail }>(`/courses/${params.courseId}`, { token });
-            setCourse(response.course);
-            
-            const updatedLesson = response.course.lessons.find(l => l.id === editingLessonId);
+            const refreshed = await refreshCourseAndSections(token);
+            const updatedLesson = refreshed?.course.lessons.find(l => l.id === editingLessonId);
             if (updatedLesson) setAttachments(updatedLesson.attachments || []);
         } catch {
             alert("Failed to delete attachment");
@@ -478,42 +638,194 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                 {courseTab === "CONTENT" && (
                     <section className="paper-panel">
                         <p className="mono-note mb-4">Course outline</p>
-                        <div className="space-y-4">
+                        <div className="mb-6 rounded-2xl border border-[var(--edge)] bg-white p-4">
+                            <p className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)] mb-3">Create chapter</p>
+                            <div className="flex items-center gap-3">
+                                <input
+                                    className="flex-1 px-4 py-2.5 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors"
+                                    placeholder="e.g. Chapter 1: Foundations"
+                                    value={newSectionTitle}
+                                    onChange={(e) => setNewSectionTitle(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && createSection()}
+                                />
+                                <button onClick={createSection} disabled={isSavingSection || !newSectionTitle.trim()} className="action-chip px-5 py-2 disabled:opacity-50">
+                                    {isSavingSection ? "Adding..." : "Add Chapter"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6">
+                            {sections.map((section, sectionIndex) => {
+                                const sectionLessons = course.lessons.filter((lesson) => lesson.sectionId === section.id);
+                                return (
+                                    <div key={section.id} className="rounded-2xl border border-[var(--edge)] bg-white p-4">
+                                        <div className="mb-3 flex items-center justify-between">
+                                            <div>
+                                                <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)]">Chapter {String(sectionIndex + 1).padStart(2, "0")}</p>
+                                                <h3 className="font-medium text-[var(--ink)]">{section.title}</h3>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => moveSection(section.id, "up")}
+                                                    disabled={isSavingSection || sectionIndex === 0}
+                                                    className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                    title="Move Chapter Up"
+                                                >
+                                                    <ChevronUp className="w-4 h-4" />
+                                                </button>
+                                                <button
+                                                    onClick={() => moveSection(section.id, "down")}
+                                                    disabled={isSavingSection || sectionIndex === sections.length - 1}
+                                                    className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                    title="Move Chapter Down"
+                                                >
+                                                    <ChevronDown className="w-4 h-4" />
+                                                </button>
+                                                <button onClick={() => renameSection(section)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Rename Chapter">
+                                                    <Edit2 className="w-4 h-4" />
+                                                </button>
+                                                <button onClick={() => deleteSection(section)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Delete Chapter">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {sectionLessons.length === 0 ? (
+                                                <p className="text-xs text-[var(--ink-soft)] italic">No lessons in this chapter yet.</p>
+                                            ) : null}
+                                            {sectionLessons.map((lesson, idx) => (
+                                                <div key={lesson.id} className="lesson-row justify-between">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-[var(--edge)]">
+                                                            {renderLessonIcon(lesson.type)}
+                                                        </div>
+                                                        <div>
+                                                            <span className="font-mono text-[10px] text-[var(--ink-soft)]">LESSON {String(idx + 1).padStart(2, '0')}</span>
+                                                            <h3 className="font-medium text-[var(--ink)]">{lesson.title}</h3>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        {sections.length > 0 ? (
+                                                            <select
+                                                                className="px-3 py-2 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors text-xs"
+                                                                value={lesson.sectionId ?? ""}
+                                                                disabled={isReorderingLessons}
+                                                                onChange={(event) => {
+                                                                    const nextSectionId = event.target.value;
+                                                                    moveLessonToSection(lesson.id, nextSectionId || null);
+                                                                }}
+                                                            >
+                                                                <option value="">Uncategorized</option>
+                                                                {sections.map((sectionOption) => (
+                                                                    <option key={sectionOption.id} value={sectionOption.id}>{sectionOption.title}</option>
+                                                                ))}
+                                                            </select>
+                                                        ) : null}
+                                                        <button
+                                                            onClick={() => moveLessonWithinGroup(sectionLessons.map((item) => item.id), lesson.id, "up")}
+                                                            disabled={isReorderingLessons || idx === 0}
+                                                            className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                            title="Move Lesson Up"
+                                                        >
+                                                            <ChevronUp className="w-4 h-4" />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => moveLessonWithinGroup(sectionLessons.map((item) => item.id), lesson.id, "down")}
+                                                            disabled={isReorderingLessons || idx === sectionLessons.length - 1}
+                                                            className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                            title="Move Lesson Down"
+                                                        >
+                                                            <ChevronDown className="w-4 h-4" />
+                                                        </button>
+                                                        {lesson.type === 'VIDEO' && lesson.videoUrl && (
+                                                            <span className="font-mono text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Video Attached</span>
+                                                        )}
+                                                        {lesson.type === 'QUIZ' && lesson.quiz && (
+                                                            <Link href={`/backoffice/quizzes/${lesson.quiz.id}`} className="action-chip text-[10px] py-1 px-3">
+                                                                Edit Quiz
+                                                            </Link>
+                                                        )}
+                                                        <button onClick={() => openEditLesson(lesson)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Edit Lesson">
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </button>
+                                                        <button onClick={() => deleteLesson(lesson.id)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Delete Lesson">
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            {course.lessons.filter((lesson) => !lesson.sectionId).length > 0 ? (
+                                <div className="rounded-2xl border border-dashed border-[var(--edge)] bg-white p-4">
+                                    <p className="font-mono text-[10px] uppercase tracking-widest text-[var(--ink-soft)] mb-3">Uncategorized</p>
+                                    <div className="space-y-3">
+                                        {course.lessons.filter((lesson) => !lesson.sectionId).map((lesson, idx) => (
+                                            <div key={lesson.id} className="lesson-row justify-between">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-[var(--edge)]">
+                                                        {renderLessonIcon(lesson.type)}
+                                                    </div>
+                                                    <div>
+                                                        <span className="font-mono text-[10px] text-[var(--ink-soft)]">LESSON {String(idx + 1).padStart(2, '0')}</span>
+                                                        <h3 className="font-medium text-[var(--ink)]">{lesson.title}</h3>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    {sections.length > 0 ? (
+                                                        <select
+                                                            className="px-3 py-2 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors text-xs"
+                                                            value={lesson.sectionId ?? ""}
+                                                            disabled={isReorderingLessons}
+                                                            onChange={(event) => {
+                                                                const nextSectionId = event.target.value;
+                                                                moveLessonToSection(lesson.id, nextSectionId || null);
+                                                            }}
+                                                        >
+                                                            <option value="">Uncategorized</option>
+                                                            {sections.map((sectionOption) => (
+                                                                <option key={sectionOption.id} value={sectionOption.id}>{sectionOption.title}</option>
+                                                            ))}
+                                                        </select>
+                                                    ) : null}
+                                                    <button
+                                                        onClick={() => moveLessonWithinGroup(course.lessons.filter((item) => !item.sectionId).map((item) => item.id), lesson.id, "up")}
+                                                        disabled={isReorderingLessons || idx === 0}
+                                                        className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        title="Move Lesson Up"
+                                                    >
+                                                        <ChevronUp className="w-4 h-4" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => moveLessonWithinGroup(course.lessons.filter((item) => !item.sectionId).map((item) => item.id), lesson.id, "down")}
+                                                        disabled={isReorderingLessons || idx === course.lessons.filter((item) => !item.sectionId).length - 1}
+                                                        className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[var(--ink)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                                        title="Move Lesson Down"
+                                                    >
+                                                        <ChevronDown className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => openEditLesson(lesson)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Edit Lesson">
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => deleteLesson(lesson.id)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Delete Lesson">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+
                             {course.lessons.length === 0 ? (
                                 <div className="py-12 text-center rounded-2xl border border-dashed border-[var(--edge)]">
                                     <p className="body-copy">No lessons added yet. Start by adding a video or document.</p>
                                 </div>
                             ) : null}
-                            {course.lessons.map((lesson, idx) => (
-                                <div key={lesson.id} className="lesson-row justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-[var(--edge)]">
-                                            {renderLessonIcon(lesson.type)}
-                                        </div>
-                                        <div>
-                                            <span className="font-mono text-[10px] text-[var(--ink-soft)]">PART {String(idx + 1).padStart(2, '0')}</span>
-                                            <h3 className="font-medium text-[var(--ink)]">{lesson.title}</h3>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-3">
-                                        {lesson.type === 'VIDEO' && lesson.videoUrl && (
-                                            <span className="font-mono text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Video Attached</span>
-                                        )}
-                                        {lesson.type === 'QUIZ' && lesson.quiz && (
-                                            <Link href={`/backoffice/quizzes/${lesson.quiz.id}`} className="action-chip text-[10px] py-1 px-3">
-                                                Edit Quiz
-                                            </Link>
-                                        )}
-                                        <button onClick={() => openEditLesson(lesson)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors" title="Edit Lesson">
-                                            <Edit2 className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={() => deleteLesson(lesson.id)} className="p-2 hover:bg-red-50 rounded-lg text-gray-400 hover:text-red-600 transition-colors" title="Delete Lesson">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
                         </div>
                     </section>
                 )}
@@ -753,6 +1065,23 @@ export default function InstructorCourseEditor({ params }: { params: { courseId:
                                                 <option value="QUIZ">Quiz</option>
                                             </select>
                                         </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-mono uppercase tracking-widest text-[var(--ink-soft)]">Chapter</label>
+                                        <select
+                                            className="w-full px-4 py-3 rounded-xl border border-[var(--edge)] bg-white outline-none focus:border-[var(--ink)] transition-colors font-medium"
+                                            value={lessonForm.sectionId}
+                                            onChange={e => setLessonForm({ ...lessonForm, sectionId: e.target.value })}
+                                        >
+                                            <option value="">Uncategorized</option>
+                                            {sections.map((section) => (
+                                                <option key={section.id} value={section.id}>{section.title}</option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-[var(--ink-soft)]">
+                                            {sections.length > 0 ? "Select a chapter so this lesson appears under it in the learner syllabus." : "Create a chapter first to organize lessons."}
+                                        </p>
                                     </div>
 
                                     <div className="space-y-2">

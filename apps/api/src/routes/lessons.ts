@@ -12,6 +12,7 @@ const lessonInputSchema = z.object({
   title: z.string().min(2),
   description: z.string().optional().nullable(),
   type: z.enum(lessonTypeValues),
+  sectionId: z.string().min(1).optional().nullable(),
   orderIndex: z.number().int().nonnegative().optional(),
   durationSeconds: z.number().int().nonnegative().default(0),
   videoUrl: z.string().url().optional().nullable(),
@@ -25,6 +26,10 @@ const attachmentInputSchema = z.object({
   label: z.string().min(1),
   fileUrl: z.string().url().optional(),
   externalUrl: z.string().url().optional()
+});
+
+const reorderLessonsSchema = z.object({
+  lessonIds: z.array(z.string().min(1)).min(1)
 });
 
 async function assertCourseOwner(courseId: string, userId: string, role: "ADMIN" | "INSTRUCTOR" | "LEARNER") {
@@ -87,6 +92,27 @@ async function assertLearnerCanAccessCourseContent(courseId: string, userId: str
   return { error: null };
 }
 
+async function resolveSectionIdForWrite(courseId: string, sectionId: string | null | undefined) {
+  if (sectionId === undefined) {
+    return { ok: true as const, sectionId: undefined };
+  }
+
+  if (sectionId === null) {
+    return { ok: true as const, sectionId: null };
+  }
+
+  const section = await prisma.courseSection.findUnique({
+    where: { id: sectionId },
+    select: { id: true, courseId: true }
+  });
+
+  if (!section || section.courseId !== courseId) {
+    return { ok: false as const, error: { status: 400, message: "Invalid sectionId for this course" } };
+  }
+
+  return { ok: true as const, sectionId };
+}
+
 export const lessonsRouter = Router();
 
 lessonsRouter.get("/lessons/:lessonId", requireAuth, async (req, res, next) => {
@@ -96,6 +122,13 @@ lessonsRouter.get("/lessons/:lessonId", requireAuth, async (req, res, next) => {
     const lesson = await prisma.lesson.findUnique({
       where: { id: lessonId },
       include: {
+        section: {
+          select: {
+            id: true,
+            title: true,
+            orderIndex: true
+          }
+        },
         attachments: true,
         quiz: {
           select: { id: true, title: true }
@@ -138,6 +171,13 @@ lessonsRouter.get("/courses/:courseId/lessons", requireAuth, async (req, res, ne
       where: { courseId },
       orderBy: { orderIndex: "asc" },
       include: {
+        section: {
+          select: {
+            id: true,
+            title: true,
+            orderIndex: true
+          }
+        },
         attachments: true,
         quiz: {
           select: { id: true, title: true }
@@ -179,6 +219,54 @@ lessonsRouter.get("/courses/:courseId/lessons", requireAuth, async (req, res, ne
   }
 });
 
+lessonsRouter.patch(
+  "/courses/:courseId/lessons/reorder",
+  requireAuth,
+  requireRole("ADMIN", "INSTRUCTOR"),
+  async (req, res, next) => {
+    try {
+      const courseId = idSchema.parse(req.params.courseId);
+      const payload = reorderLessonsSchema.parse(req.body);
+
+      const permission = await assertCourseOwner(courseId, req.user!.id, req.user!.role);
+      if (permission.error) {
+        return res.status(permission.error.status).json({ message: permission.error.message });
+      }
+
+      const lessons = await prisma.lesson.findMany({
+        where: { courseId },
+        select: { id: true },
+        orderBy: { orderIndex: "asc" }
+      });
+
+      const uniqueIds = [...new Set(payload.lessonIds)];
+      if (uniqueIds.length !== lessons.length) {
+        return res.status(400).json({ message: "lessonIds must include each course lesson exactly once" });
+      }
+
+      const lessonIdSet = new Set(lessons.map((lesson: { id: string }) => lesson.id));
+      const hasInvalid = uniqueIds.some((lessonId) => !lessonIdSet.has(lessonId));
+      if (hasInvalid) {
+        return res.status(400).json({ message: "lessonIds contains invalid lesson id" });
+      }
+
+      await prisma.$transaction(
+        uniqueIds.map((lessonId, index) =>
+          prisma.lesson.update({
+            where: { id: lessonId },
+            data: { orderIndex: index },
+            select: { id: true }
+          })
+        )
+      );
+
+      return res.status(200).json({ message: "Lessons reordered" });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
 lessonsRouter.post(
   "/courses/:courseId/lessons",
   requireAuth,
@@ -193,10 +281,16 @@ lessonsRouter.post(
         return res.status(permission.error.status).json({ message: permission.error.message });
       }
 
+      const sectionResolution = await resolveSectionIdForWrite(courseId, payload.sectionId);
+      if (!sectionResolution.ok) {
+        return res.status(sectionResolution.error.status).json({ message: sectionResolution.error.message });
+      }
+
       const count = await prisma.lesson.count({ where: { courseId } });
       const lesson = await prisma.lesson.create({
         data: {
           courseId,
+          ...(sectionResolution.sectionId !== undefined ? { sectionId: sectionResolution.sectionId } : {}),
           title: payload.title,
           description: payload.description,
           type: payload.type,
@@ -248,9 +342,15 @@ lessonsRouter.patch(
         return res.status(permission.error.status).json({ message: permission.error.message });
       }
 
+      const sectionResolution = await resolveSectionIdForWrite(lesson.courseId, payload.sectionId);
+      if (!sectionResolution.ok) {
+        return res.status(sectionResolution.error.status).json({ message: sectionResolution.error.message });
+      }
+
       const updated = await prisma.lesson.update({
         where: { id: lessonId },
         data: {
+          ...(sectionResolution.sectionId !== undefined ? { sectionId: sectionResolution.sectionId } : {}),
           ...(payload.title !== undefined ? { title: payload.title } : {}),
           ...(payload.description !== undefined ? { description: payload.description } : {}),
           ...(payload.type !== undefined ? { type: payload.type } : {}),

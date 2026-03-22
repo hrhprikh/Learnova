@@ -46,6 +46,7 @@ model Course {
   createdBy         User             @relation("CourseCreator", fields: [createdById], references: [id], onDelete: Cascade)
   responsibleUser   User?            @relation("CourseResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   tags              CourseTag[]
+  sections          CourseSection[]
   lessons           Lesson[]
   attendees         CourseAttendee[]
   progress          CourseProgress[]
@@ -147,9 +148,23 @@ model CourseTag {
   @@index([courseId])
 }
 
+model CourseSection {
+  id         String   @id @default(cuid())
+  courseId   String
+  title      String
+  orderIndex Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons    Lesson[]
+
+  @@index([courseId, orderIndex])
+}
+
 model Lesson {
   id              String       @id @default(cuid())
   courseId        String
+  sectionId       String?
   title           String
   description     String?
   type            LessonType
@@ -161,6 +176,7 @@ model Lesson {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   course          Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  section         CourseSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   responsibleUserId String?
   responsibleUser   User?       @relation("LessonResponsible", fields: [responsibleUserId], references: [id], onDelete: SetNull)
   attachments     LessonAttachment[]
@@ -168,6 +184,7 @@ model Lesson {
   progress        LessonProgress[]
 
   @@index([courseId, orderIndex])
+  @@index([courseId, sectionId, orderIndex])
 }
 
 model LessonAttachment {

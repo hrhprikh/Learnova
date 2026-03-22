@@ -10,6 +10,7 @@ import { getCurrentSession } from "@/lib/supabase-auth";
 type QuizTakeResponse = {
   quiz: {
     id: string;
+    lessonId: string;
     title: string;
     totalQuestions: number;
     nextAttemptNumber: number;
@@ -45,6 +46,7 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
   const [answers, setAnswers] = useState<Array<{ questionId: string; optionIds: string[] }>>([]);
   const [result, setResult] = useState<QuizSubmitResponse["result"] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -156,9 +158,9 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
               <div className="mt-16 text-right">
                 <button
                   className="inline-flex items-center gap-3 bg-[var(--ink)] text-white px-8 py-4 rounded-full font-medium text-lg hover:bg-[#2a2d43] hover:scale-105 transition-all duration-300 shadow-[0_10px_40px_-10px_rgba(26,28,41,0.4)] disabled:opacity-50 disabled:hover:scale-100"
-                  disabled={selected.length === 0}
+                  disabled={selected.length === 0 || isSubmitting}
                   onClick={async () => {
-                    if (selected.length === 0) return;
+                    if (selected.length === 0 || isSubmitting) return;
                     const nextAnswers = [
                       ...answers.filter((answer) => answer.questionId !== current.id),
                       { questionId: current.id, optionIds: selected }
@@ -166,16 +168,29 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
 
                     if (isLast) {
                       if (!token || !quiz) return;
-                      const submit = await apiRequest<QuizSubmitResponse>(`/quizzes/${quiz.id}/submit`, {
-                        method: "POST",
-                        token,
-                        body: { answers: nextAnswers }
-                      });
-                      setResult(submit.result);
-                      setStarted(false);
-                      setIndex(0);
-                      setSelected([]);
-                      setAnswers([]);
+                      setIsSubmitting(true);
+                      try {
+                        const submit = await apiRequest<QuizSubmitResponse>(`/quizzes/${quiz.id}/submit`, {
+                          method: "POST",
+                          token,
+                          body: { answers: nextAnswers }
+                        });
+                        await apiRequest(`/lessons/${quiz.lessonId}/complete`, {
+                          method: "POST",
+                          token
+                        });
+
+                        setResult(submit.result);
+                        setStarted(false);
+                        setIndex(0);
+                        setSelected([]);
+                        setAnswers([]);
+                        setError(null);
+                      } catch (submitError) {
+                        setError(submitError instanceof Error ? submitError.message : "Could not submit quiz");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
                       return;
                     }
                     setAnswers(nextAnswers);
@@ -183,10 +198,12 @@ export default function QuizPage({ params }: { params: { quizId: string } }) {
                     setSelected([]);
                   }}
                 >
-                  {isLast ? "Complete Quiz" : "Next Question"}
+                  {isLast ? (isSubmitting ? "Submitting..." : "Complete Quiz") : "Next Question"}
                   <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
+
+              {error ? <p className="mt-4 text-right text-sm text-red-600">{error}</p> : null}
             </>
           ) : null}
 
