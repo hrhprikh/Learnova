@@ -1,5 +1,4 @@
 [build]
-  base = "apps/api"
   command = "npm run build"
   functions = "netlify/functions"
 
