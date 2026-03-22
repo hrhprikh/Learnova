@@ -5,6 +5,9 @@
 @tailwind utilities;
 
 :root {
+  --font-inter: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-space-mono: "Space Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
   /* Backwards compatibility for other pages */
   --color-background: #F8F7F4;
   --color-foreground: #1A1C29;
