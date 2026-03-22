@@ -51,3 +51,5 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   const message = error instanceof Error ? error.message : "Internal server error";
   return res.status(500).json({ message });
 });
+
+export default app;
